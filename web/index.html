@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Modbus Diagnostic Tool</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Modbus Diagnostic Tool</h1>
+        <div class="card">
+            <h3>Diagnostic Report</h3>
+            <div id="report">Loading...</div>
+        </div>
+        <div class="card">
+            <h3>Export</h3>
+            <button onclick="downloadReport()">Download Report (JSON)</button>
+            <button onclick="downloadHTML()">Download Report (HTML)</button>
+        </div>
+        <div class="card">
+            <h3>Connection</h3>
+            <p>Connect to WiFi: <strong>ModbusDiag</strong></p>
+            <p>Password: <strong>12345678</strong></p>
+            <p>Then visit: <a href="http://192.168.4.1/">http://192.168.4.1/</a></p>
+        </div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
