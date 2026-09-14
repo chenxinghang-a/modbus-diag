@@ -166,7 +166,7 @@ void app_main(void)
                             TASK_PRIO_UI, NULL, 1);
 
     xTaskCreatePinnedToCore(modbus_task, "modbus_task", TASK_STACK_MODBUS, NULL,
-                            TASK_PRIO_MODBUS, NULL, 0);
+                            1, NULL, 0);  /* Low priority: placeholder for future request queue */
 
     ESP_LOGI(TAG, "System initialized");
 }

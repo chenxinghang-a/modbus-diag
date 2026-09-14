@@ -59,6 +59,17 @@
 #define TASK_PRIO_CAPTURE   4
 #define TASK_PRIO_WIFI      3
 
+/* ========== UART Mode (shared between Modbus Master and Packet Capture) ==========
+ * NOTE: do NOT name this "uart_mode_t" / "UART_MODE_*" without the APP_ prefix.
+ * ESP-IDF's hal/uart_types.h already declares a conflicting `uart_mode_t`
+ * (UART_MODE_UART / UART_MODE_RS485_HALF_DUPLEX / ...), which any translation unit
+ * that includes driver/uart.h will pull in. */
+typedef enum {
+    APP_UART_MODE_IDLE = 0,     /* Neither active */
+    APP_UART_MODE_MODBUS,       /* Modbus master owns UART */
+    APP_UART_MODE_CAPTURE,      /* Packet capture owns UART */
+} app_uart_mode_t;
+
 #define TASK_STACK_UI       4096
 #define TASK_STACK_MODBUS   4096
 #define TASK_STACK_CAPTURE  3072

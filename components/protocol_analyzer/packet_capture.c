@@ -1,5 +1,6 @@
 #include "packet_capture.h"
 #include "modbus_rtu.h"
+#include "modbus_master.h"
 #include "app_config.h"
 #include "driver/uart.h"
 #include "freertos/FreeRTOS.h"
@@ -65,9 +66,15 @@ esp_err_t packet_capture_start(void)
 {
     if (s_running) return ESP_OK;
 
-    /* Install a second UART driver on the same UART for passive listening */
-    /* Note: We share the UART with modbus_master. In capture mode,
-       we read passively while modbus is not actively sending. */
+    /* Check if Modbus master is currently using the UART */
+    if (modbus_master_get_uart_mode() == APP_UART_MODE_MODBUS) {
+        ESP_LOGW(TAG, "UART busy with Modbus, cannot start capture");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    /* Mark UART as capture mode */
+    modbus_master_set_uart_mode(APP_UART_MODE_CAPTURE);
+
     packet_capture_clear();
     s_running = true;
 
@@ -75,6 +82,8 @@ esp_err_t packet_capture_start(void)
                                              NULL, TASK_PRIO_CAPTURE, &s_task_handle, 0);
     if (ret != pdPASS) {
         s_running = false;
+        /* Hand the UART back, otherwise Modbus stays refused for good */
+        modbus_master_set_uart_mode(APP_UART_MODE_IDLE);
         return ESP_FAIL;
     }
 
@@ -87,6 +96,8 @@ void packet_capture_stop(void)
     s_running = false;
     /* Task will clean itself up */
     vTaskDelay(pdMS_TO_TICKS(50));
+    /* Release UART back to idle */
+    modbus_master_set_uart_mode(APP_UART_MODE_IDLE);
 }
 
 bool packet_capture_is_running(void)

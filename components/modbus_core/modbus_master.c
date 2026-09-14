@@ -22,6 +22,7 @@ static modbus_config_t s_cfg = {
 };
 
 static int32_t s_last_response_time_us = 0;
+static volatile app_uart_mode_t s_uart_mode = APP_UART_MODE_IDLE;
 
 /* RS-485 direction control */
 static void rs485_tx_enable(void)
@@ -95,13 +96,33 @@ esp_err_t modbus_master_init(void)
 
 void modbus_master_process(void)
 {
-    /* Background processing if needed (e.g., queued requests) */
-    vTaskDelay(pdMS_TO_TICKS(10));
+    /* Placeholder for future request queue processing.
+       Currently, Modbus operations are invoked directly via
+       modbus_master_send_recv() from the UI task. A proper
+       request queue would serialize all I/O on core 0. */
+    vTaskDelay(pdMS_TO_TICKS(100));
+}
+
+app_uart_mode_t modbus_master_get_uart_mode(void)
+{
+    return s_uart_mode;
+}
+
+void modbus_master_set_uart_mode(app_uart_mode_t mode)
+{
+    s_uart_mode = mode;
 }
 
 modbus_err_t modbus_master_send_recv(const modbus_request_t *req, modbus_response_t *resp)
 {
     if (!req || !resp) return MODBUS_ERR_INVALID_PARAM;
+
+    /* Check if UART is available */
+    if (s_uart_mode == APP_UART_MODE_CAPTURE) {
+        ESP_LOGW(TAG, "UART busy (capture mode)");
+        return MODBUS_ERR_IO;
+    }
+    s_uart_mode = APP_UART_MODE_MODBUS;
 
     uint8_t tx_buf[256];
     uint8_t rx_buf[256];
@@ -109,6 +130,7 @@ modbus_err_t modbus_master_send_recv(const modbus_request_t *req, modbus_respons
     int tx_len = modbus_rtu_build_request(req, tx_buf, sizeof(tx_buf));
     if (tx_len < 0) {
         ESP_LOGE(TAG, "Build request failed");
+        s_uart_mode = APP_UART_MODE_IDLE;
         return MODBUS_ERR_INVALID_PARAM;
     }
 
@@ -123,6 +145,7 @@ modbus_err_t modbus_master_send_recv(const modbus_request_t *req, modbus_respons
     int written = uart_write_bytes(RS485_UART_NUM, tx_buf, tx_len);
     if (written != tx_len) {
         rs485_rx_enable();
+        s_uart_mode = APP_UART_MODE_IDLE;
         return MODBUS_ERR_IO;
     }
 
@@ -148,11 +171,14 @@ modbus_err_t modbus_master_send_recv(const modbus_request_t *req, modbus_respons
 
     if (rx_len <= 0) {
         ESP_LOGD(TAG, "Timeout (addr=%d fc=0x%02X)", req->slave_addr, req->function_code);
+        s_uart_mode = APP_UART_MODE_IDLE;
         return MODBUS_ERR_TIMEOUT;
     }
 
     /* Parse response */
-    return modbus_rtu_parse_response(rx_buf, rx_len, resp);
+    modbus_err_t result = modbus_rtu_parse_response(rx_buf, rx_len, resp);
+    s_uart_mode = APP_UART_MODE_IDLE;
+    return result;
 }
 
 /* ========== High-level API ========== */

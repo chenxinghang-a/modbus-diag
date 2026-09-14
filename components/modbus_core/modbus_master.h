@@ -1,10 +1,15 @@
 #pragma once
 
 #include "modbus_common.h"
+#include "app_config.h"
 #include "esp_err.h"
 
 esp_err_t modbus_master_init(void);
 void modbus_master_process(void);
+
+/* UART mode management (shared between Modbus and Capture) */
+app_uart_mode_t modbus_master_get_uart_mode(void);
+void modbus_master_set_uart_mode(app_uart_mode_t mode);
 
 /* Configure RS-485 parameters */
 esp_err_t modbus_master_configure(const modbus_config_t *cfg);
