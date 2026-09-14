@@ -165,6 +165,10 @@ modbus_err_t modbus_rtu_parse_response(const uint8_t *frame, uint16_t frame_len,
         case MODBUS_FC_READ_INPUT_REGS:
             resp->byte_count = frame[2];
             resp->data_len = resp->byte_count;
+            /* Bounds check: need at least 3 header bytes + data_len + 2 CRC */
+            if ((uint16_t)(3 + resp->data_len + 2) > frame_len) {
+                return MODBUS_ERR_INVALID_RESPONSE;
+            }
             if (resp->data_len > sizeof(resp->data)) {
                 resp->data_len = sizeof(resp->data);
             }
@@ -173,17 +177,20 @@ modbus_err_t modbus_rtu_parse_response(const uint8_t *frame, uint16_t frame_len,
 
         case MODBUS_FC_WRITE_SINGLE_COIL:
         case MODBUS_FC_WRITE_SINGLE_REG:
+            if (frame_len < 8) return MODBUS_ERR_INVALID_RESPONSE;  /* addr+fc+4data+2crc */
             memcpy(resp->data, &frame[2], 4);
             resp->data_len = 4;
             break;
 
         case MODBUS_FC_WRITE_MULTI_COILS:
         case MODBUS_FC_WRITE_MULTI_REGS:
+            if (frame_len < 8) return MODBUS_ERR_INVALID_RESPONSE;
             memcpy(resp->data, &frame[2], 4);
             resp->data_len = 4;
             break;
 
         case MODBUS_FC_DIAGNOSTICS:
+            if (frame_len < 6) return MODBUS_ERR_INVALID_RESPONSE;  /* addr+fc+2data+2crc */
             resp->data_len = frame_len - 4; /* exclude addr, fc, crc */
             if (resp->data_len > sizeof(resp->data)) {
                 resp->data_len = sizeof(resp->data);
@@ -192,6 +199,7 @@ modbus_err_t modbus_rtu_parse_response(const uint8_t *frame, uint16_t frame_len,
             break;
 
         default:
+            if (frame_len < 4) return MODBUS_ERR_INVALID_RESPONSE;
             resp->data_len = frame_len - 4;
             if (resp->data_len > sizeof(resp->data)) {
                 resp->data_len = sizeof(resp->data);

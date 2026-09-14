@@ -66,10 +66,15 @@ void gui_manager_goto(page_id_t page)
 {
     if (page >= PAGE_MAX || page == s_current) return;
 
-    /* Push current to stack */
-    if (s_stack_top < 8) {
-        s_page_stack[s_stack_top++] = s_current;
+    /* Push current to stack, drop oldest if full */
+    if (s_stack_top >= 8) {
+        ESP_LOGW(TAG, "Page stack overflow, dropping oldest entry");
+        for (int i = 0; i < 7; i++) {
+            s_page_stack[i] = s_page_stack[i + 1];
+        }
+        s_stack_top = 7;
     }
+    s_page_stack[s_stack_top++] = s_current;
 
     /* Exit old page */
     if (s_pages[s_current] && s_pages[s_current]->on_exit) {

@@ -30,12 +30,16 @@ static esp_err_t report_handler(httpd_req_t *req)
         httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "No report available");
         return ESP_FAIL;
     }
-    char buf[1024];
-    size_t len = fread(buf, 1, sizeof(buf) - 1, f);
-    fclose(f);
-    buf[len] = '\0';
+    /* Use chunked transfer for large reports */
+    char buf[512];
     httpd_resp_set_type(req, "application/json");
-    return httpd_resp_send(req, buf, len);
+    size_t len;
+    while ((len = fread(buf, 1, sizeof(buf), f)) > 0) {
+        httpd_resp_send_chunk(req, buf, len);
+    }
+    fclose(f);
+    httpd_resp_send_chunk(req, NULL, 0);  /* End chunked response */
+    return ESP_OK;
 }
 
 esp_err_t web_server_start(void)
