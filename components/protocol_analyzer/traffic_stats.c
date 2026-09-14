@@ -1,20 +1,31 @@
 #include "traffic_stats.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include <string.h>
 
 static traffic_stats_t s_stats;
 static uint32_t s_frames_this_sec;
 static uint32_t s_bytes_this_sec;
+static SemaphoreHandle_t s_mutex = NULL;
 
 void traffic_stats_init(void)
 {
+    if (!s_mutex) {
+        s_mutex = xSemaphoreCreateMutex();
+    }
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
     memset(&s_stats, 0, sizeof(s_stats));
     s_stats.min_response_us = INT32_MAX;
     s_frames_this_sec = 0;
     s_bytes_this_sec = 0;
+    xSemaphoreGive(s_mutex);
 }
 
 void traffic_stats_add_frame(bool crc_ok, bool is_exception, int32_t response_us, uint16_t frame_len)
 {
+    if (!s_mutex) return;
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+
     s_stats.total_frames++;
     s_frames_this_sec++;
     s_bytes_this_sec += frame_len;
@@ -33,7 +44,7 @@ void traffic_stats_add_frame(bool crc_ok, bool is_exception, int32_t response_us
         if (response_us < s_stats.min_response_us) {
             s_stats.min_response_us = response_us;
         }
-        /* Running average */
+        /* Exponential moving average (alpha=0.125) */
         if (s_stats.total_frames == 1) {
             s_stats.avg_response_us = response_us;
         } else {
@@ -44,11 +55,16 @@ void traffic_stats_add_frame(bool crc_ok, bool is_exception, int32_t response_us
     if (s_stats.total_frames > 0) {
         s_stats.error_rate = (float)s_stats.error_frames / s_stats.total_frames;
     }
+
+    xSemaphoreGive(s_mutex);
 }
 
 void traffic_stats_get(traffic_stats_t *out)
 {
-    if (out) *out = s_stats;
+    if (!out || !s_mutex) return;
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    *out = s_stats;
+    xSemaphoreGive(s_mutex);
 }
 
 void traffic_stats_reset(void)
@@ -58,8 +74,11 @@ void traffic_stats_reset(void)
 
 void traffic_stats_tick(void)
 {
+    if (!s_mutex) return;
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
     s_stats.frames_per_sec = s_frames_this_sec;
     s_stats.bytes_per_sec = s_bytes_this_sec;
     s_frames_this_sec = 0;
     s_bytes_this_sec = 0;
+    xSemaphoreGive(s_mutex);
 }

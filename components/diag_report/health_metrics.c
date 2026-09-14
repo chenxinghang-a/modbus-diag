@@ -1,4 +1,6 @@
 #include "health_metrics.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include <string.h>
 #include <math.h>
 
@@ -6,6 +8,7 @@ static health_report_t s_report;
 static int32_t s_response_sum;
 static int64_t s_response_sq_sum;
 static uint32_t s_response_count;
+static SemaphoreHandle_t s_mutex = NULL;
 
 static const health_weights_t s_weights = {
     .weight_response_time = 0.3f,
@@ -15,15 +18,23 @@ static const health_weights_t s_weights = {
 
 void health_metrics_init(void)
 {
+    if (!s_mutex) {
+        s_mutex = xSemaphoreCreateMutex();
+    }
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
     memset(&s_report, 0, sizeof(s_report));
     s_report.min_response_us = INT32_MAX;
     s_response_sum = 0;
     s_response_sq_sum = 0;
     s_response_count = 0;
+    xSemaphoreGive(s_mutex);
 }
 
 void health_metrics_update(int32_t response_us, bool is_error, bool is_exception)
 {
+    if (!s_mutex) return;
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+
     s_report.total_frames++;
     if (is_error) s_report.error_frames++;
     if (is_exception) s_report.exception_frames++;
@@ -49,6 +60,8 @@ void health_metrics_update(int32_t response_us, bool is_error, bool is_exception
     if (s_report.total_frames > 0) {
         s_report.error_rate = (float)s_report.error_frames / s_report.total_frames;
     }
+
+    xSemaphoreGive(s_mutex);
 }
 
 int health_metrics_calculate_score(const health_report_t *report)
@@ -92,7 +105,9 @@ const char *health_metrics_grade(int score)
 
 void health_metrics_get_report(health_report_t *out)
 {
-    if (!out) return;
+    if (!out || !s_mutex) return;
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
     *out = s_report;
     out->health_score = health_metrics_calculate_score(&s_report);
+    xSemaphoreGive(s_mutex);
 }

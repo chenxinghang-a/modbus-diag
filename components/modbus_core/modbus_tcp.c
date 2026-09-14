@@ -2,6 +2,8 @@
 #include "modbus_rtu.h"
 #include "esp_log.h"
 #include "lwip/sockets.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include <string.h>
 #include <sys/time.h>
 
@@ -11,9 +13,13 @@ static const char *TAG = "modbus_tcp";
 
 static int s_sock = -1;
 static uint16_t s_trans_id = 0;
+static SemaphoreHandle_t s_sock_mutex = NULL;
 
 esp_err_t modbus_tcp_init(void)
 {
+    if (!s_sock_mutex) {
+        s_sock_mutex = xSemaphoreCreateMutex();
+    }
     s_sock = -1;
     s_trans_id = 0;
     return ESP_OK;
@@ -21,6 +27,9 @@ esp_err_t modbus_tcp_init(void)
 
 esp_err_t modbus_tcp_connect(const char *ip, uint16_t port)
 {
+    if (!s_sock_mutex) modbus_tcp_init();
+    xSemaphoreTake(s_sock_mutex, portMAX_DELAY);
+
     if (s_sock >= 0) {
         close(s_sock);
         s_sock = -1;
@@ -29,6 +38,7 @@ esp_err_t modbus_tcp_connect(const char *ip, uint16_t port)
     s_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (s_sock < 0) {
         ESP_LOGE(TAG, "Socket create failed");
+        xSemaphoreGive(s_sock_mutex);
         return ESP_FAIL;
     }
 
@@ -39,6 +49,7 @@ esp_err_t modbus_tcp_connect(const char *ip, uint16_t port)
     if (inet_pton(AF_INET, ip, &dest.sin_addr) != 1) {
         close(s_sock);
         s_sock = -1;
+        xSemaphoreGive(s_sock_mutex);
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -51,19 +62,24 @@ esp_err_t modbus_tcp_connect(const char *ip, uint16_t port)
         ESP_LOGE(TAG, "Connect to %s:%d failed", ip, port);
         close(s_sock);
         s_sock = -1;
+        xSemaphoreGive(s_sock_mutex);
         return ESP_FAIL;
     }
 
     ESP_LOGI(TAG, "Connected to %s:%d", ip, port);
+    xSemaphoreGive(s_sock_mutex);
     return ESP_OK;
 }
 
 void modbus_tcp_disconnect(void)
 {
+    if (!s_sock_mutex) return;
+    xSemaphoreTake(s_sock_mutex, portMAX_DELAY);
     if (s_sock >= 0) {
         close(s_sock);
         s_sock = -1;
     }
+    xSemaphoreGive(s_sock_mutex);
 }
 
 bool modbus_tcp_is_connected(void)
@@ -196,20 +212,33 @@ modbus_err_t modbus_tcp_parse_frame(const uint8_t *frame, uint16_t frame_len,
 
 modbus_err_t modbus_tcp_send_recv(const modbus_request_t *req, modbus_response_t *resp)
 {
-    if (s_sock < 0) return MODBUS_ERR_IO;
+    if (!s_sock_mutex) return MODBUS_ERR_IO;
     if (!req || !resp) return MODBUS_ERR_INVALID_PARAM;
+
+    xSemaphoreTake(s_sock_mutex, portMAX_DELAY);
+
+    if (s_sock < 0) {
+        xSemaphoreGive(s_sock_mutex);
+        return MODBUS_ERR_IO;
+    }
 
     uint8_t tx_buf[256], rx_buf[256];
     uint16_t tid = s_trans_id++;
 
     int tx_len = modbus_tcp_build_frame(tid, req, tx_buf, sizeof(tx_buf));
-    if (tx_len < 0) return MODBUS_ERR_INVALID_PARAM;
+    if (tx_len < 0) {
+        xSemaphoreGive(s_sock_mutex);
+        return MODBUS_ERR_INVALID_PARAM;
+    }
 
     struct timeval tv_start, tv_end;
     gettimeofday(&tv_start, NULL);
 
     int sent = send(s_sock, tx_buf, tx_len, 0);
-    if (sent != tx_len) return MODBUS_ERR_IO;
+    if (sent != tx_len) {
+        xSemaphoreGive(s_sock_mutex);
+        return MODBUS_ERR_IO;
+    }
 
     int rx_len = recv(s_sock, rx_buf, sizeof(rx_buf), 0);
     gettimeofday(&tv_end, NULL);
@@ -217,7 +246,12 @@ modbus_err_t modbus_tcp_send_recv(const modbus_request_t *req, modbus_response_t
     resp->response_time_us = (tv_end.tv_sec - tv_start.tv_sec) * 1000000 +
                               (tv_end.tv_usec - tv_start.tv_usec);
 
-    if (rx_len <= 0) return MODBUS_ERR_TIMEOUT;
+    if (rx_len <= 0) {
+        xSemaphoreGive(s_sock_mutex);
+        return MODBUS_ERR_TIMEOUT;
+    }
 
-    return modbus_tcp_parse_frame(rx_buf, rx_len, resp);
+    modbus_err_t result = modbus_tcp_parse_frame(rx_buf, rx_len, resp);
+    xSemaphoreGive(s_sock_mutex);
+    return result;
 }
