@@ -34,8 +34,11 @@
 #define BTN_DEBOUNCE_MS     30
 #define BTN_LONG_PRESS_MS   800
 
-/* ========== ADC (Waveform) ========== */
-#define WAVE_ADC_CHANNEL    ADC_CHANNEL_3   /* GPIO4 */
+/* ========== ADC (Waveform) ==========
+ * GPIO4 is reserved for the MAX3485E DE/RE direction pin (see RS485_PIN_DE),
+ * so the waveform ADC input must NOT use ADC1_CH3. Use ADC1_CH4 = GPIO5.
+ * GPIO5 is not an ESP32-S3 strapping pin and is otherwise unassigned on this board. */
+#define WAVE_ADC_CHANNEL    ADC_CHANNEL_4   /* GPIO5 */
 #define WAVE_ADC_UNIT       ADC_UNIT_1
 #define WAVE_SAMPLE_RATE    100000          /* 100KSPS */
 #define WAVE_SAMPLE_DEPTH   1024

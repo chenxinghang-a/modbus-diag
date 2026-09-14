@@ -60,7 +60,7 @@ static void wave_update(void)
         tft_draw_string(10, 204, buf, THEME_FG, THEME_BG, FONT_SMALL);
     } else {
         tft_draw_string(20, 60, "485 Signal Viewer", THEME_ACCENT, THEME_BG, FONT_LARGE);
-        tft_draw_string(20, 90, "ADC on GPIO4", THEME_FG, THEME_BG, FONT_NORMAL);
+        tft_draw_string(20, 90, "ADC on GPIO5", THEME_FG, THEME_BG, FONT_NORMAL);
         tft_draw_string(20, 120, "[OK] Start", THEME_HIGHLIGHT, THEME_BG, FONT_NORMAL);
     }
 
