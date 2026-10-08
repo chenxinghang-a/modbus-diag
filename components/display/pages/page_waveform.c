@@ -2,6 +2,7 @@
 #include "tft_driver.h"
 #include "ui_widgets.h"
 #include "ui_theme.h"
+#include "app_config.h"
 #include "adc_sampler.h"
 #include "signal_process.h"
 #include "waveform_render.h"
@@ -34,8 +35,14 @@ static void wave_update(void)
     ui_status_bar_draw("Waveform", false, s_running);
 
     if (s_running) {
-        const uint16_t *raw = adc_sampler_get_buffer();
-        int depth = adc_sampler_get_depth();
+        /* 双缓冲领取一帧（2026-10-08 改造：原来是裸指针直读"正在被写"的缓冲，
+         * 必然读到撕裂波形）。无新帧则直接返回 —— 保持当前画面，不重绘。
+         * raw 用 static：UI 更新单线程且不可重入，避免 2KB 上栈。 */
+        static uint16_t raw[WAVE_SAMPLE_DEPTH];
+        int depth = 0;
+        if (adc_sampler_read_frame(raw, &depth) <= 0) {
+            return;
+        }
 
         /* Filter */
         uint16_t filtered[1024];
