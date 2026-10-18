@@ -5,3 +5,7 @@ sdkconfig.old
 __pycache__/
 .vscode/
 .idea/
+
+# 论文：正文与排版件入库，备份文件不入库
+论文/*.bak_*
+论文/*.bak
