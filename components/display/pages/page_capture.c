@@ -5,6 +5,7 @@
 #include "packet_capture.h"
 #include "frame_parser.h"
 #include "traffic_stats.h"
+#include "health_metrics.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -18,6 +19,9 @@ static void capture_enter(void)
     s_capturing = false;
     packet_capture_init();
     traffic_stats_init();
+    /* 诊断页的健康指标由这里喂数据；不先 init 的话 mutex 是 NULL，
+     * health_metrics_update() 会静默返回，诊断页永远停在「无数据」。 */
+    health_metrics_init();
 }
 
 static void capture_exit(void)
@@ -41,6 +45,13 @@ static void capture_update(void)
             if (frame_parser_parse(frame.data, frame.len, &parsed)) {
                 traffic_stats_add_frame(frame.crc_valid, parsed.is_exception,
                                         0, frame.len);
+                /* is_error 口径：CRC 错、异常响应、解不出帧，都算「这一帧没拿到有效数据」。
+                 * response_us 传 0：抓包侧没有请求/响应配对时间戳，0 表示「这次不计时」，
+                 * health_metrics_update 里用 if (response_us > 0) 挡住。 */
+                health_metrics_update(0,
+                                      (!frame.crc_valid) || parsed.is_exception,
+                                      parsed.is_exception,
+                                      parsed.is_exception ? parsed.exception_code : 0);
             }
         }
     }

@@ -30,14 +30,20 @@ void health_metrics_init(void)
     xSemaphoreGive(s_mutex);
 }
 
-void health_metrics_update(int32_t response_us, bool is_error, bool is_exception)
+void health_metrics_update(int32_t response_us, bool is_error, bool is_exception,
+                           uint8_t exception_code)
 {
     if (!s_mutex) return;
     xSemaphoreTake(s_mutex, portMAX_DELAY);
 
     s_report.total_frames++;
     if (is_error) s_report.error_frames++;
-    if (is_exception) s_report.exception_frames++;
+    if (is_exception) {
+        s_report.exception_frames++;
+        /* 只记最近一次：诊断页要回答的是「现在这台设备在报什么」，
+         * 不是「历史上出现过哪些码」（后者看 exception_frames 计数）。 */
+        if (exception_code != 0) s_report.last_exception_code = exception_code;
+    }
 
     if (response_us > 0) {
         if (response_us < s_report.min_response_us) s_report.min_response_us = response_us;

@@ -1,4 +1,5 @@
 #include "report_generator.h"
+#include "modbus_common.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -24,6 +25,11 @@ int report_generate_json(char *buf, size_t buf_size, const health_report_t *heal
             "\"error_rate\":%.4f,"
             "\"fps\":%lu,"
             "\"bps\":%lu"
+        "},"
+        "\"last_exception\":{"
+            "\"code\":%u,"
+            "\"name\":\"%s\","
+            "\"advice\":\"%s\""
         "}"
         "}",
         device_info ? device_info : "unknown",
@@ -38,7 +44,10 @@ int report_generate_json(char *buf, size_t buf_size, const health_report_t *heal
         (unsigned long)health->exception_frames,
         health->error_rate,
         (unsigned long)health->frames_per_sec,
-        (unsigned long)health->bytes_per_sec
+        (unsigned long)health->bytes_per_sec,
+        (unsigned)health->last_exception_code,
+        health->last_exception_code ? modbus_exception_name(health->last_exception_code) : "",
+        health->last_exception_code ? modbus_exception_advice(health->last_exception_code) : ""
     );
 }
 

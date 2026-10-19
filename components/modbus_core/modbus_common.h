@@ -132,3 +132,25 @@ static inline const char *modbus_exception_name(uint8_t ex)
         default: return "Unknown";
     }
 }
+
+/* 异常码 -> 现场处置建议。
+ *
+ * 光有 "Illegal Addr" 这种名字，维护人员还是不知道该动哪儿：
+ * 2 是点表填错，11 是网关后面那台设备没回 —— 处理方向完全不同。
+ * 这里给一句能直接照着做的话，屏幕字体只支持 ASCII，所以用短英文。
+ * 长度控制在 24 字符以内，适配 320x240 屏一行显示。 */
+static inline const char *modbus_exception_advice(uint8_t ex)
+{
+    switch (ex) {
+        case MODBUS_EX_ILLEGAL_FUNCTION:    return "Device lacks this FC";
+        case MODBUS_EX_ILLEGAL_DATA_ADDR:   return "Check register map";
+        case MODBUS_EX_ILLEGAL_DATA_VALUE:  return "Check value range";
+        case MODBUS_EX_SLAVE_DEVICE_FAILURE:return "Slave internal fault";
+        case MODBUS_EX_ACK:                 return "Slave busy, wait";
+        case MODBUS_EX_SLAVE_BUSY:          return "Retry later / slower";
+        case MODBUS_EX_MEMORY_PARITY:       return "Slave memory error";
+        case MODBUS_EX_GATEWAY_PATH:        return "Check gateway link";   /* 0x0A：不是从站的问题 */
+        case MODBUS_EX_GATEWAY_TARGET:      return "Check target device";  /* 0x0B：网关后面那台 */
+        default:                            return "Vendor specific code";
+    }
+}

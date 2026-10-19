@@ -22,11 +22,14 @@ typedef struct {
     uint32_t exception_frames;
     uint32_t frames_per_sec;
     uint32_t bytes_per_sec;
+    uint8_t  last_exception_code; /* 最近一次异常响应的异常码，0 = 还没有过异常 */
     int      health_score;       /* 0~100 */
 } health_report_t;
 
 void health_metrics_init(void);
-void health_metrics_update(int32_t response_us, bool is_error, bool is_exception);
+/* exception_code：本次帧若是异常响应就传异常码，否则传 0（MODBUS_EX_NONE） */
+void health_metrics_update(int32_t response_us, bool is_error, bool is_exception,
+                           uint8_t exception_code);
 void health_metrics_get_report(health_report_t *out);
 int health_metrics_calculate_score(const health_report_t *report);
 const char *health_metrics_grade(int score);
