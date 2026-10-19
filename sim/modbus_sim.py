@@ -10,19 +10,53 @@
 
 用法
 ----
-    python sim/modbus_sim.py                     # 默认读 sim/devices.json
-    python sim/modbus_sim.py --config other.json --port 15020
+    python sim/modbus_sim.py                          # Modbus TCP（默认 15020）+ 控制接口 15021
+    python sim/modbus_sim.py --port 15020 --host 127.0.0.1
+    python sim/modbus_sim.py --rtu COM3 --baud 115200  # Modbus RTU（真实串口/虚拟串口对）
 
-启动后：
-    Modbus TCP      : <host>:15020   （unit id 由 devices.json 决定，支持多从站）
-    控制接口(HTTP)  : <host>:15021   （读写寄存器 / 看拓扑，方便前端或脚本驱动）
+三种传输：
+    Modbus TCP : <host>:15020   （unit id 由 devices.json 决定，支持多从站）
+    Modbus RTU : --rtu <COMx>   （8N1，波特率/校验/停止位可调）
+    控制接口   : <host>:15021   （读写寄存器 / 看拓扑 / **注入故障**）
 
 控制接口
 --------
     GET  /health
-    GET  /read?unit=1&kind=hr&addr=0&count=4
-    POST /write?unit=1&kind=hr&addr=0&value=123
+    GET  /read?unit=1&kind=hr&addr=0&count=4          （加 &raw=1 绕过故障注入看底层值）
+    POST /write?unit=1&kind=hr&addr=0&value=123       （同样支持 &raw=1）
     kind: hr=保持寄存器 co=线圈 ir=输入寄存器 di=离散输入
+
+    —— 故障注入（诊断工具的题眼）——
+    GET  /faults
+    POST /fault?unit=1&kind=hr&addr=1&action=exception            地址 1 回异常（默认码 2）
+    POST /fault?unit=1&kind=hr&addr=1&action=exception&code=4     指定异常码 4（从站设备故障）
+    POST /fault?unit=1&kind=hr&addr=2&action=delay&ms=4000        地址 2 拖 4 秒（触发客户端超时）
+    POST /fault/clear?unit=1                                      清掉该 unit
+    POST /fault/clear                                             清空全部
+
+两种故障动作
+------------
+* ``exception`` —— 返回标准 Modbus 异常响应，异常码可选
+  ``1`` 非法功能 / ``2`` 非法数据地址 / ``3`` 非法数据值 / ``4`` 从站设备故障 /
+  ``5`` 确认 / ``6`` 从站忙，默认 ``2``。
+* ``delay`` —— 先等 ``ms`` 毫秒再正常返回。把 ``ms`` 调到大于客户端超时阈值
+  （常见 1~3 秒）即可模拟「从站不响应」。
+
+> **为什么注入点是 PDU 的 ``update_datastore``**：pymodbus 3.8 里
+> ``ExceptionResponse`` 是 PDU 类**不是异常类**（``raise`` 它会 TypeError），
+> 而服务端两条兜底路径的异常码都写死：``validate()`` 失败固定为 2，
+> 服务端 ``except`` 分支固定为 ``ExceptionResponse(0x00, 4)`` ——
+> 后者 FC 是 0，客户端直接解不出帧（实测踩过）。
+> 想指定任意异常码，只能包一层 ``update_datastore`` 并**返回**自己构造的
+> ``ExceptionResponse``。只包这一层，不碰 framer、不改 datastore 语义。
+>
+> 也没有「直接丢弃回包」：那要改 framer 层，等于改协议栈本身。
+> 诊断意义上 ``delay`` 已能覆盖「超时」现象，且行为可控、可复现。
+
+地址约定
+--------
+pymodbus 3.x 的 datastore 是 1 基，``values[0]`` 是占位。配置与 HTTP 接口一律用 **0 基地址**，
+代码里统一加 ``ADDR_OFFSET``。别改这个偏移，改了对外语义就变。
 """
 from __future__ import annotations
 
@@ -30,6 +64,7 @@ import argparse
 import json
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -39,17 +74,95 @@ try:
         ModbusServerContext,
         ModbusSlaveContext,
     )
-    from pymodbus.server import StartTcpServer
+    from pymodbus.framer import FramerType
+    from pymodbus.server import StartSerialServer, StartTcpServer
 except ImportError:  # pragma: no cover
-    sys.exit("缺少依赖：pip install -r sim/requirements.txt")
+    raise SystemExit("缺少依赖：pip install -r sim/requirements.txt")
 
 # 说明：锁 pymodbus 3.8.x。3.13+ 把 datastore 改成了 async/SimData 体系
 # （ModbusDeviceContext 没有同步 getValues），4.x 还会移除旧接口。
 # 这里用 3.8 的稳定经典 API，版本已写进 sim/requirements.txt。
 
 KIND = {"co": 1, "di": 2, "hr": 3, "ir": 4}  # 功能码：线圈/离散输入/保持寄存器/输入寄存器
+# 写操作的功能码也要能映射回 kind（5/15 写线圈，6/16 写保持寄存器）
+FC2KIND = {1: "co", 2: "di", 3: "hr", 4: "ir", 5: "co", 6: "hr", 15: "co", 16: "hr"}
 MAX_ADDR = 65536
 ADDR_OFFSET = 1  # pymodbus 3.x datastore 为 1 基，对外仍用 0 基地址
+
+#: 故障动作 -> 对外表现
+ACTIONS = {
+    "exception": "返回 Modbus 异常响应（code 可选 1~6，默认 2 非法数据地址）",
+    "delay": "延迟响应（毫秒级），用于模拟超时",
+}
+
+#: 标准异常码
+FAULT_CODES = {1: "非法功能", 2: "非法数据地址", 3: "非法数据值",
+               4: "从站设备故障", 5: "确认", 6: "从站忙"}
+
+
+class FaultRules:
+    """线程安全的故障规则表。控制接口改它，数据层读它。"""
+
+    def __init__(self) -> None:
+        self._rules: list[dict] = []
+        self._lock = threading.Lock()
+
+    # ---- 写 ----
+    def set(self, rule: dict) -> dict:
+        """新增一条规则。同 unit+kind+addr 的旧规则先删掉，避免叠加出意外行为。"""
+        unit = int(rule["unit"])
+        kind = rule.get("kind", "hr")
+        addr = int(rule.get("addr", 0))
+        action = rule.get("action", "exception")
+        if kind not in KIND and kind != "*":
+            raise ValueError(f"kind 只能是 {list(KIND)} 或 *，收到 {kind!r}")
+        if action not in ACTIONS:
+            raise ValueError(f"action 只能是 {list(ACTIONS)}，收到 {action!r}")
+        code = None
+        if action == "exception":
+            code = int(rule.get("code", 2))
+            if code not in FAULT_CODES:
+                raise ValueError(f"code 只能是 {sorted(FAULT_CODES)}，收到 {code}")
+        item = {
+            "unit": unit,
+            "kind": kind,
+            "addr": addr,
+            "count": max(1, int(rule.get("count", 1))),
+            "action": action,
+            "code": code,
+            "ms": max(0, int(rule.get("ms", 3000))) if action == "delay" else None,
+        }
+        with self._lock:
+            self._rules = [r for r in self._rules
+                           if not (r["unit"] == unit and r["kind"] == kind and r["addr"] == addr)]
+            self._rules.append(item)
+        return item
+
+    def clear(self, unit: int | None = None) -> int:
+        with self._lock:
+            before = len(self._rules)
+            if unit is None:
+                self._rules = []
+            else:
+                self._rules = [r for r in self._rules if r["unit"] != unit]
+            return before - len(self._rules)
+
+    # ---- 读 ----
+    def match(self, unit: int, kind: str, address: int, count: int) -> dict | None:
+        """请求区间与规则区间有交集即命中。返回第一条命中的规则。"""
+        with self._lock:
+            for r in self._rules:
+                if r["unit"] != unit:
+                    continue
+                if r["kind"] != "*" and r["kind"] != kind:
+                    continue
+                if address < r["addr"] + r["count"] and r["addr"] < address + count:
+                    return dict(r)
+        return None
+
+    def snapshot(self) -> list[dict]:
+        with self._lock:
+            return [dict(r) for r in self._rules]
 
 
 def _block(regs: dict) -> ModbusSequentialDataBlock:
@@ -60,7 +173,120 @@ def _block(regs: dict) -> ModbusSequentialDataBlock:
     return ModbusSequentialDataBlock(0, values)
 
 
-def build_context(cfg: dict) -> tuple[ModbusServerContext, dict]:
+class FaultedSlaveContext(ModbusSlaveContext):
+    """在标准 datastore 外面套一层故障注入。
+
+    两个注入点，都是 pymodbus 的公开面，不打补丁：
+
+    * ``validate()`` —— 返回 False 即「地址非法」，服务端会包成 ExceptionResponse(fc, 2)
+    * ``getValues()/setValues()`` —— 抛异常走服务端兜底分支，包成 ExceptionResponse(fc, 4)；
+      或在里面 sleep 实现延迟响应
+
+    为什么不用 ``raise ExceptionResponse(...)``：3.8 的 ExceptionResponse 是 PDU 类不是异常类，
+    raise 它会 TypeError，服务端兜底再包一层，线上就变成 0x80/0x04（实测踩过）。
+    """
+
+    def __init__(self, unit: int, faults: FaultRules, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.unit = unit
+        self.faults = faults
+
+    def _rule(self, fc: int, address: int, count: int) -> dict | None:
+        kind = FC2KIND.get(fc)
+        if kind is None:  # 未知功能码交给 pymodbus 自己判
+            return None
+        return self.faults.match(self.unit, kind, address, max(1, count))
+
+    def _apply(self, fc: int, address: int, count: int) -> None:
+        """同步 getValues/setValues 上的注入（HTTP 控制接口直接走这条路）。"""
+        rule = self._rule(fc, address, count)
+        if not rule:
+            return
+        if rule["action"] == "delay":
+            time.sleep(rule["ms"] / 1000.0)
+        elif rule["action"] == "exception":
+            raise ValueError(f"注入故障：unit={self.unit} 返回异常码 "
+                             f"{rule['code']}（{FAULT_CODES[rule['code']]}）")
+
+    def getValues(self, fc_as_hex, address, count=1):
+        self._apply(fc_as_hex, address, count)
+        return super().getValues(fc_as_hex, address, count)
+
+    def setValues(self, fc_as_hex, address, values):
+        self._apply(fc_as_hex, address, len(values))
+        return super().setValues(fc_as_hex, address, values)
+
+
+# ---------------------------------------------------------------- PDU 层注入
+#
+# 为什么要在这一层拦：pymodbus 3.8 的 ExceptionResponse 是 PDU 类**不是异常类**
+# （raise 它会 TypeError），而服务端只有两个兜底分支，异常码都被写死：
+#   update_datastore 里 validate 失败 -> ExceptionResponse(fc, 2)
+#   服务端 except 分支            -> ExceptionResponse(0x00, 4)   ← FC 是 0，客户端解不出帧
+# 所以「指定异常码」只能包一层 update_datastore，返回**自己构造的合法 ExceptionResponse**。
+# 只包它，不碰 framer、不碰 datastore 语义；pymodbus 版本由 requirements.txt 钉死。
+
+def _pdu_classes() -> list:
+    from pymodbus.pdu.bit_message import (
+        ReadCoilsRequest,
+        ReadDiscreteInputsRequest,
+        WriteMultipleCoilsRequest,
+        WriteSingleCoilRequest,
+    )
+    from pymodbus.pdu.register_message import (
+        ReadHoldingRegistersRequest,
+        ReadInputRegistersRequest,
+        WriteMultipleRegistersRequest,
+        WriteSingleRegisterRequest,
+    )
+    return [ReadCoilsRequest, ReadDiscreteInputsRequest,
+            ReadHoldingRegistersRequest, ReadInputRegistersRequest,
+            WriteSingleCoilRequest, WriteSingleRegisterRequest,
+            WriteMultipleCoilsRequest, WriteMultipleRegistersRequest]
+
+
+def install_fault_hook() -> list:
+    """把故障注入装到 PDU 的 update_datastore 上。返回被包过的类名，便于自检。"""
+    import asyncio
+    from pymodbus.pdu import ExceptionResponse
+
+    patched = []
+    for cls in _pdu_classes():
+        if getattr(cls, "_scada_fault_hooked", False):
+            patched.append(cls.__name__)
+            continue
+        orig = cls.update_datastore
+
+        async def wrapper(self, context, _orig=orig):
+            faults = getattr(context, "faults", None)
+            unit = getattr(context, "unit", None)
+            if faults is not None and unit is not None:
+                fc = self.function_code
+                kind = FC2KIND.get(fc)
+                if kind:
+                    addr = getattr(self, "address", 0)
+                    cnt = getattr(self, "count", None)
+                    if cnt is None:
+                        vals = getattr(self, "values", None)
+                        cnt = len(vals) if isinstance(vals, (list, tuple)) else 1
+                    rule = faults.match(unit, kind, addr, max(1, cnt))
+                    if rule:
+                        if rule["action"] == "exception":
+                            return ExceptionResponse(fc, rule["code"],
+                                                     slave=self.dev_id,
+                                                     transaction=self.transaction_id)
+                        if rule["action"] == "delay":
+                            await asyncio.sleep(rule["ms"] / 1000.0)
+            return await _orig(self, context)
+
+        cls.update_datastore = wrapper
+        cls._scada_fault_hooked = True
+        patched.append(cls.__name__)
+    return patched
+
+
+def build_context(cfg: dict) -> tuple[ModbusServerContext, dict, FaultRules]:
+    faults = FaultRules()
     devices = {}
     meta = {}
     for dev in cfg.get("devices", []):
@@ -68,26 +294,38 @@ def build_context(cfg: dict) -> tuple[ModbusServerContext, dict]:
         # 地址约定（实测校准，别改）：datastore 里 values[0] 是占位，配置的 0 号放在 values[1]；
         # 服务端对「客户端读 0 号」会调 getValues(fc, 0, n)，其内部再 +1 取到 values[1]。
         # 所以 HTTP 控制接口传 0 基地址即可，不要再加偏移。
-        devices[unit] = ModbusSlaveContext(
+        devices[unit] = FaultedSlaveContext(
+            unit=unit,
+            faults=faults,
             co=_block(dev.get("coils", {})),
             di=_block(dev.get("discrete", {})),
             hr=_block(dev.get("holding", {})),
             ir=_block(dev.get("input", {})),
         )
         meta[unit] = dev.get("name", f"unit-{unit}")
+
+        # 配置里可以预置故障：devices[].faults = [{kind,addr,action,ms,count}, ...]
+        for rule in dev.get("faults", []) or []:
+            faults.set(dict(rule, unit=unit))
+
     if not devices:
         raise SystemExit("devices.json 里没有 devices")
-    return ModbusServerContext(slaves=devices, single=False), meta
+
+    # 顶层也可以放一份 faults（便于共享规则的配置）
+    for rule in cfg.get("faults", []) or []:
+        faults.set(rule)
+
+    return ModbusServerContext(slaves=devices, single=False), meta, faults
 
 
-def make_handler(context: ModbusServerContext, meta: dict):
+def make_handler(context: ModbusServerContext, meta: dict, faults: FaultRules):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
         def log_message(self, *args):  # 静音
             pass
 
-        def _json(self, code: int, payload: dict) -> None:
+        def _json(self, code: int, payload) -> None:
             body = json.dumps(payload, ensure_ascii=False).encode()
             self.send_response(code)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -106,14 +344,25 @@ def make_handler(context: ModbusServerContext, meta: dict):
             qs = parse_qs(url.query)
             try:
                 if url.path == "/health":
-                    return self._json(200, {"ok": True, "units": sorted(meta), "names": meta})
+                    return self._json(200, {"ok": True, "units": sorted(meta), "names": meta,
+                                            "faults": len(faults.snapshot()),
+                                            "actions": ACTIONS})
+                if url.path == "/faults":
+                    return self._json(200, {"rules": faults.snapshot()})
                 if url.path == "/read":
                     unit, ctx = self._ctx(qs)
                     kind = KIND[qs.get("kind", ["hr"])[0]]
                     addr = int(qs.get("addr", ["0"])[0])
                     count = int(qs.get("count", ["1"])[0])
-                    values = ctx.getValues(kind, addr, count)
-                    return self._json(200, {"unit": unit, "kind": kind, "addr": addr, "values": list(values)})
+                    # raw=1 绕过故障注入，直接看底层寄存器 —— 排查「注入了什么」时用
+                    if qs.get("raw", ["0"])[0] == "1":
+                        values = ModbusSlaveContext.getValues(ctx, kind, addr, count)
+                        raw = True
+                    else:
+                        values = ctx.getValues(kind, addr, count)
+                        raw = False
+                    return self._json(200, {"unit": unit, "kind": kind, "addr": addr,
+                                            "values": list(values), "raw": raw})
                 return self._json(404, {"error": "unknown path"})
             except Exception as exc:  # 控制接口不应把模拟器搞挂
                 return self._json(400, {"error": str(exc)})
@@ -127,8 +376,31 @@ def make_handler(context: ModbusServerContext, meta: dict):
                     kind = KIND[qs.get("kind", ["hr"])[0]]
                     addr = int(qs.get("addr", ["0"])[0])
                     value = int(qs.get("value", ["0"])[0])
-                    ctx.setValues(kind, addr, [value])
-                    return self._json(200, {"ok": True, "unit": unit, "kind": kind, "addr": addr, "value": value})
+                    if qs.get("raw", ["0"])[0] == "1":
+                        ModbusSlaveContext.setValues(ctx, kind, addr, [value])
+                    else:
+                        ctx.setValues(kind, addr, [value])
+                    return self._json(200, {"ok": True, "unit": unit, "kind": kind,
+                                            "addr": addr, "value": value})
+                if url.path == "/fault":
+                    rule = {
+                        "unit": int(qs.get("unit", ["1"])[0]),
+                        "kind": qs.get("kind", ["hr"])[0],
+                        "addr": int(qs.get("addr", ["0"])[0]),
+                        "count": int(qs.get("count", ["1"])[0]),
+                        "action": qs.get("action", ["exception"])[0],
+                    }
+                    if rule["action"] == "delay":
+                        rule["ms"] = int(qs.get("ms", ["3000"])[0])
+                    elif rule["action"] == "exception":
+                        rule["code"] = int(qs.get("code", ["2"])[0])
+                    if rule["unit"] not in meta:
+                        raise KeyError(f"没有 unit={rule['unit']}，现有：{sorted(meta)}")
+                    return self._json(200, {"ok": True, "rule": faults.set(rule)})
+                if url.path == "/fault/clear":
+                    unit = qs.get("unit", [None])[0]
+                    n = faults.clear(int(unit) if unit is not None else None)
+                    return self._json(200, {"ok": True, "cleared": n})
                 return self._json(404, {"error": "unknown path"})
             except Exception as exc:
                 return self._json(400, {"error": str(exc)})
@@ -142,6 +414,13 @@ def main() -> int:
     ap.add_argument("--host", default=None)
     ap.add_argument("--port", type=int, default=None)
     ap.add_argument("--control-port", type=int, default=None)
+    # —— RTU ——
+    ap.add_argument("--rtu", default=None, metavar="COMx",
+                    help="改走 Modbus RTU，指定串口（如 COM3）。给了它就不开 TCP。")
+    ap.add_argument("--baud", type=int, default=19200, help="RTU 波特率，默认 19200")
+    ap.add_argument("--parity", default="N", choices=["N", "E", "O"], help="RTU 校验位，默认 N")
+    ap.add_argument("--stopbits", type=int, default=1, choices=[1, 2], help="RTU 停止位，默认 1")
+    ap.add_argument("--bytesize", type=int, default=8, choices=[7, 8], help="RTU 数据位，默认 8")
     args = ap.parse_args()
 
     cfg_path = args.config or str(__file__.rsplit("\\", 1)[0]) + "\\devices.json"
@@ -152,16 +431,52 @@ def main() -> int:
     port = args.port or int(cfg.get("port", 15020))
     control_port = args.control_port or int(cfg.get("control_port", 15021))
 
-    context, meta = build_context(cfg)
+    context, meta, faults = build_context(cfg)
+    hooked = install_fault_hook()
 
-    httpd = ThreadingHTTPServer((host, control_port), make_handler(context, meta))
+    httpd = ThreadingHTTPServer((host, control_port), make_handler(context, meta, faults))
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
 
     print(f"[sim] 设备 {sorted(meta)} -> {meta}")
-    print(f"[sim] Modbus TCP  {host}:{port}")
+    if args.rtu:
+        print(f"[sim] Modbus RTU  {args.rtu} @ {args.baud} "
+              f"{args.bytesize}{args.parity}{args.stopbits}")
+    else:
+        print(f"[sim] Modbus TCP  {host}:{port}")
     print(f"[sim] 控制接口    http://{host}:{control_port}/health")
+    print(f"[sim] 故障注入    已挂 {len(hooked)} 个 PDU 类，预置 {len(faults.snapshot())} 条规则")
     print("[sim] Ctrl+C 结束")
-    StartTcpServer(context=context, address=(host, port))
+
+    if args.rtu:
+        # 预检：先自己开一下串口。串口不存在时 pymodbus 会一直重连、不退出，
+        # 那样命令行看着像卡死；这里提前拦住并列出可用端口。
+        try:
+            import serial
+        except ImportError:
+            print("[sim] 走 RTU 需要 pyserial：pip install pyserial", file=sys.stderr)
+            return 2
+        try:
+            probe = serial.Serial(port=args.rtu, baudrate=args.baud, timeout=0.2)
+            probe.close()
+        except Exception as exc:
+            from serial.tools import list_ports
+            ports = [p.device for p in list_ports.comports()]
+            print(f"[sim] 打不开串口 {args.rtu!r}：{exc}", file=sys.stderr)
+            print(f"[sim] 本机可用串口：{ports or '（无）'}", file=sys.stderr)
+            return 2
+
+        StartSerialServer(
+            context=context,
+            framer=FramerType.RTU,
+            port=args.rtu,
+            baudrate=args.baud,
+            parity=args.parity,
+            stopbits=args.stopbits,
+            bytesize=args.bytesize,
+            timeout=1,
+        )
+    else:
+        StartTcpServer(context=context, address=(host, port))
     return 0
 
 
