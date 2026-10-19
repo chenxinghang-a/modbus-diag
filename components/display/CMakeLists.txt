@@ -20,4 +20,8 @@ idf_component_register(
         diag_report
         wifi_service
         storage
+    # 页面靠 __attribute__((constructor)) 自注册，而静态库只会把「被引用到的」.o 拉进镜像。
+    # 不整库链接的话，除 page_home（gui_manager 里 extern 引用了符号）之外**全部页面都会被丢掉**，
+    # 编译照样过、map 里却查不到 page_diag.c.obj —— 上板才发现翻页是空的。
+    WHOLE_ARCHIVE
 )
