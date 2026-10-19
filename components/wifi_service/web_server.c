@@ -24,15 +24,24 @@ static esp_err_t root_handler(httpd_req_t *req)
 
 static esp_err_t report_handler(httpd_req_t *req)
 {
-    /* Serve the latest report from SPIFFS */
-    FILE *f = fopen("/spiffs/report.json", "r");
+    /* 优先发 HTML（浏览器直接看得到带样式的报告），没有再退到 JSON。
+     * 两份都是诊断页「导出」时一起写进 SPIFFS 的。 */
+    const char *path = "/spiffs/report.html";
+    const char *type = "text/html";
+    FILE *f = fopen(path, "r");
     if (!f) {
-        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "No report available");
+        path = "/spiffs/report.json";
+        type = "application/json";
+        f = fopen(path, "r");
+    }
+    if (!f) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND,
+                            "No report available, export from the device first");
         return ESP_FAIL;
     }
     /* Use chunked transfer for large reports */
     char buf[512];
-    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_type(req, type);
     size_t len;
     while ((len = fread(buf, 1, sizeof(buf), f)) > 0) {
         httpd_resp_send_chunk(req, buf, len);

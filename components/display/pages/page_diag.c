@@ -113,6 +113,14 @@ static void diag_key(uint8_t key)
             char json[1024];
             report_generate_json(json, sizeof(json), &s_report, "ESP32-ModbusDiag");
             report_export_to_file(json, "report.json");
+
+            /* 同一份数据再出一份 HTML：浏览器直接能看，Web 的 /report 优先发它。
+             * 放静态区，别压在 GUI 任务栈上（3KB 栈很容易爆）。 */
+            static char html[3072];
+            int n = report_generate_html(html, sizeof(html), &s_report, "ESP32-ModbusDiag");
+            if (n > 0 && (size_t)n < sizeof(html)) {
+                report_export_to_file(html, "report.html");
+            }
             s_need_redraw = true;
             break;
         }
