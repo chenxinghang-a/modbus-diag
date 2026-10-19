@@ -13,10 +13,30 @@ static bool s_need_redraw = true;
 static bool s_capturing = false;
 static int s_scroll = 0;
 
+/* 最近帧的本地环形缓冲。
+ *
+ * 为什么必须有：packet_capture_get_frame() 是**出队**（xQueueReceive），
+ * 原来页面里取了两遍——第一遍喂统计、第二遍渲染列表——第二遍队列已经空了，
+ * 所以「最近报文」那一栏**永远是空白**。现在只在取帧处取一次，同时存进这个环，
+ * 渲染从环里读，不再碰队列。 */
+#define RECENT_MAX 8
+static captured_frame_t s_recent[RECENT_MAX];
+static int s_recent_head = 0;
+static int s_recent_count = 0;
+
+static void recent_push(const captured_frame_t *f)
+{
+    s_recent[s_recent_head] = *f;
+    s_recent_head = (s_recent_head + 1) % RECENT_MAX;
+    if (s_recent_count < RECENT_MAX) s_recent_count++;
+}
+
 static void capture_enter(void)
 {
     s_need_redraw = true;
     s_capturing = false;
+    s_recent_head = 0;
+    s_recent_count = 0;
     packet_capture_init();
     traffic_stats_init();
     /* 诊断页的健康指标由这里喂数据；不先 init 的话 mutex 是 NULL，
@@ -41,6 +61,7 @@ static void capture_update(void)
         /* Process captured frames */
         captured_frame_t frame;
         while (packet_capture_get_frame(&frame)) {
+            recent_push(&frame);
             parsed_frame_t parsed;
             if (frame_parser_parse(frame.data, frame.len, &parsed)) {
                 traffic_stats_add_frame(frame.crc_valid, parsed.is_exception,
@@ -75,20 +96,23 @@ static void capture_update(void)
              (long)stats.avg_response_us, (long)stats.max_response_us);
     tft_draw_string(10, 48, buf, THEME_FG, THEME_BG, FONT_SMALL);
 
-    /* Show recent frames */
+    /* Show recent frames —— 从本地环里读，**不要**再调 packet_capture_get_frame()，
+     * 那会把队列里的新帧吃掉（原来就是这么写的，导致这一栏永远空白）。 */
     int y = 65;
-    captured_frame_t frame;
-    int shown = 0;
-    while (packet_capture_get_frame(&frame) && shown < 8) {
+    for (int i = 0; i < s_recent_count && i < RECENT_MAX; i++) {
+        int idx = (s_recent_head - s_recent_count + i + RECENT_MAX) % RECENT_MAX;
+        const captured_frame_t *f = &s_recent[idx];
         parsed_frame_t parsed;
-        if (frame_parser_parse(frame.data, frame.len, &parsed)) {
-            char desc[48];
-            frame_parser_to_string(&parsed, desc, sizeof(desc));
-            uint16_t color = frame.crc_valid ? THEME_FG : THEME_ERROR;
-            tft_draw_string(10, y, desc, color, THEME_BG, FONT_SMALL);
-            y += 12;
-            shown++;
+        if (!frame_parser_parse(f->data, f->len, &parsed)) {
+            continue;
         }
+        char desc[48];
+        char line[64];
+        frame_parser_to_string(&parsed, desc, sizeof(desc));
+        snprintf(line, sizeof(line), "%6lums %s", (unsigned long)f->uptime_ms, desc);
+        uint16_t color = f->crc_valid ? THEME_FG : THEME_ERROR;
+        tft_draw_string(10, y, line, color, THEME_BG, FONT_SMALL);
+        y += 12;
     }
 
     tft_draw_string(10, TFT_HEIGHT - 18,

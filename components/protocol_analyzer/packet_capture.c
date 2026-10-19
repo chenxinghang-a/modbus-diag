@@ -32,11 +32,11 @@ static void capture_task(void *arg)
             frame.len = len > 256 ? 256 : len;
             memcpy(frame.data, buf, frame.len);
             frame.crc_valid = crc_ok;
-            frame.is_request = false;  /* can't easily distinguish in passive mode */
-
-            struct timeval tv;
-            gettimeofday(&tv, NULL);
-            frame.timestamp_us = tv.tv_sec * 1000000 + tv.tv_usec;
+            /* 时间戳用开机毫秒。原先是 tv_sec*1000000 塞进 uint32 → 溢出成垃圾值，
+             * 所以这个字段一直没人读；现在页面能直接显示「第几毫秒收到的帧」。
+             * 用 FreeRTOS tick 换算而不是 esp_timer：本组件没有 esp_timer 依赖，
+             * 为一行时间戳去改 CMakeLists 的 REQUIRES 不划算。 */
+            frame.uptime_ms = (uint32_t)pdTICKS_TO_MS(xTaskGetTickCount());
 
             /* Send to queue (non-blocking, drop if full) */
             xQueueSend(s_frame_queue, &frame, 0);

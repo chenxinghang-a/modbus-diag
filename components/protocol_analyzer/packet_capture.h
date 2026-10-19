@@ -10,8 +10,10 @@
 typedef struct {
     uint8_t  data[256];
     uint16_t len;
-    uint32_t timestamp_us;
-    bool     is_request;    /* true=request from master, false=response from slave */
+    /* 开机后的毫秒数（esp_timer_get_time()/1000）。
+     * 原来叫 timestamp_us 且用 uint32 存 tv_sec*1000000 —— 1.7e15 截断到 32 位，
+     * 值是垃圾，所以从来没人敢显示。改成开机毫秒：uint32 够 49 天，显示也直观。 */
+    uint32_t uptime_ms;
     bool     crc_valid;
 } captured_frame_t;
 
