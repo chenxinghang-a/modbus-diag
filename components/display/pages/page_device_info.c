@@ -18,9 +18,12 @@ static bool s_classifying = false;
  * 原来这一页只读不写，FC05/06 在 UI 上根本没有入口（论文 FR 里却列了写功能码）。 */
 static int  s_cursor = 0;          /* 可写寄存器组里的序号 */
 static bool s_edit = false;
+static int  s_digit = 0;           /* 编辑态：当前在改第几位（0=万位） */
 static uint16_t s_edit_val = 0;
 static char s_msg[48] = "";
 static bool s_msg_err = false;
+
+static const uint16_t k_pow10[5] = {10000, 1000, 100, 10, 1};
 
 static const char *reg_type_str[] = {"Coil", "DiscInp", "Holding", "Input"};
 
@@ -132,20 +135,25 @@ static void dev_update(void)
         }
     }
 
-    /* 编辑态：把当前地址和值放大显示，避免改错寄存器 */
+    /* 编辑态：5 个数字框逐位高亮（用 ui_num_input_draw 单个数字位画）。
+     * 原来只能 ±1 调值，写 3000 要按三千下 —— 纯属没法用。 */
     if (s_edit) {
-        snprintf(buf, sizeof(buf), "EDIT @%u = %u", (unsigned)addr, (unsigned)s_edit_val);
-        tft_draw_string(10, 158, buf, THEME_HIGHLIGHT, THEME_BG, FONT_NORMAL);
-    }
-
-    if (s_msg[0]) {
-        tft_draw_string(10, 180, s_msg, s_msg_err ? THEME_ERROR : THEME_SUCCESS,
+        snprintf(buf, sizeof(buf), "EDIT @%u", (unsigned)addr);
+        tft_draw_string(10, 140, buf, THEME_HIGHLIGHT, THEME_BG, FONT_SMALL);
+        for (int i = 0; i < 5; i++) {
+            int d = (s_edit_val / k_pow10[i]) % 10;
+            ui_num_input_draw(10 + i * 16, 152, d, 1, (i == s_digit),
+                              THEME_HIGHLIGHT, THEME_BG);
+        }
+    } else if (s_msg[0]) {
+        /* 非编辑态才显示上一次的写入结果，免得和输入框挤在一起 */
+        tft_draw_string(10, 158, s_msg, s_msg_err ? THEME_ERROR : THEME_SUCCESS,
                         THEME_BG, FONT_SMALL);
     }
 
     if (s_edit) {
         tft_draw_string(10, TFT_HEIGHT - 18,
-                        "[UP/DN] +/-1   [OK] Write   [BACK] Cancel",
+                        "[UP/DN] Digit  [OK] Next/Write  [BACK] Cancel",
                         THEME_FG, THEME_BG, FONT_SMALL);
     } else {
         tft_draw_string(10, TFT_HEIGHT - 18,
@@ -154,69 +162,83 @@ static void dev_update(void)
     }
 }
 
+static void dev_commit_write(int gi, uint16_t addr)
+{
+    int type = (gi >= 0) ? s_dev.reg_groups[gi].reg_type : REG_TYPE_HOLDING;
+    modbus_err_t err;
+    if (type == REG_TYPE_HOLDING) {
+        err = modbus_write_single_reg(s_dev.slave_addr, addr, s_edit_val);
+    } else if (type == REG_TYPE_COIL) {
+        err = modbus_write_single_coil(s_dev.slave_addr, addr, s_edit_val != 0);
+    } else {
+        err = MODBUS_ERR_INVALID_PARAM;   /* 输入寄存器/离散输入本来就只读 */
+    }
+
+    if (err == MODBUS_OK) {
+        /* 读回确认：从站回「写入成功」不等于值真的生效（有些设备会钳位） */
+        uint16_t rb = 0;
+        uint16_t cnt = 0;
+        if (type == REG_TYPE_HOLDING) {
+            modbus_read_holding_regs(s_dev.slave_addr, addr, 1, &rb, &cnt);
+        } else {
+            uint8_t coil[1] = {0};
+            if (modbus_read_coils(s_dev.slave_addr, addr, 1, coil, &cnt) == MODBUS_OK) {
+                rb = coil[0] & 1;
+            }
+        }
+        snprintf(s_msg, sizeof(s_msg), "OK @%u readback=%u", (unsigned)addr, (unsigned)rb);
+        s_msg_err = false;
+        log_storage_logf("write: addr=%d @%u -> %u (%s), readback=%u",
+                         s_dev.slave_addr, (unsigned)addr, (unsigned)s_edit_val,
+                         type == REG_TYPE_COIL ? "coil" : "hr", (unsigned)rb);
+    } else {
+        snprintf(s_msg, sizeof(s_msg), "Write failed (err=%d)", (int)err);
+        s_msg_err = true;
+        log_storage_logf("write FAILED: addr=%d @%u val=%u err=%d",
+                         s_dev.slave_addr, (unsigned)addr,
+                         (unsigned)s_edit_val, (int)err);
+    }
+    s_edit = false;
+    s_need_redraw = true;
+}
+
 static void dev_key(uint8_t key)
 {
     int gi = group_at_cursor(s_cursor);
     uint16_t addr = (gi >= 0) ? s_dev.reg_groups[gi].start_addr : 0;
 
-    /* ---------- 编辑态 ---------- */
+    /* ---------- 编辑态：逐位改数字 ---------- */
     if (s_edit) {
-        switch (key) {
-            case 0:  /* UP +1 */
-                s_edit_val++;
-                s_need_redraw = true;
-                break;
-            case 1:  /* DOWN -1 */
-                s_edit_val--;
-                s_need_redraw = true;
-                break;
-            case 2: { /* OK 提交 */
-                int type = (gi >= 0) ? s_dev.reg_groups[gi].reg_type : REG_TYPE_HOLDING;
-                modbus_err_t err;
-                if (type == REG_TYPE_HOLDING) {
-                    err = modbus_write_single_reg(s_dev.slave_addr, addr, s_edit_val);
-                } else if (type == REG_TYPE_COIL) {
-                    err = modbus_write_single_coil(s_dev.slave_addr, addr, s_edit_val != 0);
-                } else {
-                    err = MODBUS_ERR_INVALID_PARAM;   /* 输入寄存器/离散输入本来就只读 */
-                }
+        int cur = (s_edit_val / k_pow10[s_digit]) % 10;
+        int nd = cur;
 
-                if (err == MODBUS_OK) {
-                    /* 读回确认：从站回「写入成功」不等于值真的生效（有些设备会钳位） */
-                    uint16_t rb = 0;
-                    uint16_t cnt = 0;
-                    if (type == REG_TYPE_HOLDING) {
-                        modbus_read_holding_regs(s_dev.slave_addr, addr, 1, &rb, &cnt);
-                    } else {
-                        uint8_t coil[1] = {0};
-                        if (modbus_read_coils(s_dev.slave_addr, addr, 1, coil, &cnt) == MODBUS_OK) {
-                            rb = coil[0] & 1;
-                        }
-                    }
-                    snprintf(s_msg, sizeof(s_msg), "OK @%u readback=%u", (unsigned)addr, (unsigned)rb);
-                    s_msg_err = false;
-                    log_storage_logf("write: addr=%d @%u -> %u (%s), readback=%u",
-                                     s_dev.slave_addr, (unsigned)addr,
-                                     (unsigned)s_edit_val,
-                                     type == REG_TYPE_COIL ? "coil" : "hr",
-                                     (unsigned)rb);
-                } else {
-                    snprintf(s_msg, sizeof(s_msg), "Write failed (err=%d)", (int)err);
-                    s_msg_err = true;
-                    log_storage_logf("write FAILED: addr=%d @%u val=%u err=%d",
-                                     s_dev.slave_addr, (unsigned)addr,
-                                     (unsigned)s_edit_val, (int)err);
-                }
-                s_edit = false;
-                s_need_redraw = true;
+        switch (key) {
+            case 0:  /* UP：当前位 +1 */
+                nd = (cur + 1) % 10;
                 break;
-            }
-            case 3:  /* BACK 取消 */
+            case 1:  /* DOWN：当前位 -1 */
+                nd = (cur + 9) % 10;
+                break;
+            case 2:  /* OK：下一位；已在最低位则提交 */
+                if (s_digit < 4) {
+                    s_digit++;
+                    s_need_redraw = true;
+                } else {
+                    dev_commit_write(gi, addr);
+                }
+                return;
+            case 3:  /* BACK：取消 */
                 s_edit = false;
                 s_msg[0] = '\0';
                 s_need_redraw = true;
-                break;
+                return;
         }
+
+        int nv = (int)s_edit_val - cur * k_pow10[s_digit] + nd * k_pow10[s_digit];
+        if (nv < 0) nv = 0;
+        if (nv > 65535) nv = 65535;      /* 5 位框能打出 99999，按 uint16 上限截断 */
+        s_edit_val = (uint16_t)nv;
+        s_need_redraw = true;
         return;
     }
 
@@ -259,6 +281,7 @@ static void dev_key(uint8_t key)
                     }
                 }
                 s_msg[0] = '\0';
+                s_digit = 0;
                 s_edit = true;
                 s_need_redraw = true;
             }
