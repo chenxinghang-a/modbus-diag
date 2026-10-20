@@ -4,5 +4,5 @@ idf_component_register(
         "health_metrics.c"
         "report_export.c"
     INCLUDE_DIRS "."
-    REQUIRES modbus_core modbus_scanner protocol_analyzer wifi_service
+    REQUIRES modbus_core modbus_scanner protocol_analyzer wifi_service storage
 )
