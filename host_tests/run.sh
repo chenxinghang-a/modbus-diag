@@ -1,19 +1,38 @@
 #!/usr/bin/env bash
-# 协议层主机侧回归：不需要 ESP-IDF、不需要板子
+# 主机侧回归：不需要 ESP-IDF、不需要板子
 # 用法： bash host_tests/run.sh
 set -e
 cd "$(dirname "$0")/.."
 
 CC=${CC:-gcc}
 OUT_DIR=host_tests/.build
+CFLAGS="-std=c99 -Wall -Wextra -O1"
 mkdir -p "$OUT_DIR"
 
-"$CC" -std=c99 -Wall -Wextra -O1 \
+fail=0
+
+echo "=== 协议层（RTU 建帧/解析 + 抓包帧解析） ==="
+"$CC" $CFLAGS \
     -I components/modbus_core \
     -I components/protocol_analyzer \
     host_tests/test_protocol.c \
     components/modbus_core/modbus_rtu.c \
     components/protocol_analyzer/frame_parser.c \
     -o "$OUT_DIR/test_protocol"
+"$OUT_DIR/test_protocol" || fail=1
 
-"$OUT_DIR/test_protocol"
+echo
+echo "=== 波形信号处理（SMA / 幅值 / 触发） ==="
+"$CC" $CFLAGS \
+    -I components/waveform \
+    host_tests/test_signal.c \
+    components/waveform/signal_process.c \
+    -o "$OUT_DIR/test_signal"
+"$OUT_DIR/test_signal" || fail=1
+
+echo
+if [ "$fail" -ne 0 ]; then
+    echo "!!! 有用例失败"
+    exit 1
+fi
+echo "全部通过"
