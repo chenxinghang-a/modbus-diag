@@ -18,6 +18,7 @@
 #include "key_scan.h"
 #include "modbus_master.h"
 #include "nvs_config.h"
+#include "log_storage.h"
 
 static const char *TAG = "main";
 
@@ -167,6 +168,11 @@ void app_main(void)
 
     /* Init SPIFFS */
     spiffs_init();
+
+    /* 操作日志：论文 5.9 描述了 oplog.txt 的追加/读取/清除，
+     * 但全工程没有一处调用 —— 文件永远是空的。这里至少把开机记上。 */
+    log_storage_init();
+    log_storage_logf("boot: Modbus Diag v1.0.0");
 
     /* Init TFT */
     ESP_ERROR_CHECK(tft_driver_init());

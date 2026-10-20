@@ -4,6 +4,7 @@
 #include "ui_theme.h"
 #include "register_classifier.h"
 #include "device_scanner.h"
+#include "log_storage.h"
 #include "modbus_master.h"
 #include <stdio.h>
 #include <string.h>
@@ -194,9 +195,17 @@ static void dev_key(uint8_t key)
                     }
                     snprintf(s_msg, sizeof(s_msg), "OK @%u readback=%u", (unsigned)addr, (unsigned)rb);
                     s_msg_err = false;
+                    log_storage_logf("write: addr=%d @%u -> %u (%s), readback=%u",
+                                     s_dev.slave_addr, (unsigned)addr,
+                                     (unsigned)s_edit_val,
+                                     type == REG_TYPE_COIL ? "coil" : "hr",
+                                     (unsigned)rb);
                 } else {
                     snprintf(s_msg, sizeof(s_msg), "Write failed (err=%d)", (int)err);
                     s_msg_err = true;
+                    log_storage_logf("write FAILED: addr=%d @%u val=%u err=%d",
+                                     s_dev.slave_addr, (unsigned)addr,
+                                     (unsigned)s_edit_val, (int)err);
                 }
                 s_edit = false;
                 s_need_redraw = true;
@@ -234,6 +243,8 @@ static void dev_key(uint8_t key)
                 s_classifying = false;
                 s_cursor = 0;
                 s_need_redraw = true;
+                log_storage_logf("classify: addr=%d -> %d register group(s)",
+                                 s_dev.slave_addr, s_dev.reg_group_count);
             } else if (gi >= 0) {
                 /* 进编辑前先把现值读出来，别让人从 0 开始瞎猜 */
                 s_edit_val = 0;

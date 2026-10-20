@@ -5,6 +5,7 @@
 #include "modbus_tcp.h"
 #include "modbus_master.h"
 #include "nvs_config.h"
+#include "log_storage.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -90,6 +91,8 @@ static void tcp_key(uint8_t key)
                     nvs_config_set_str("tcp_ip", s_ip);
                     nvs_config_set_u32("tcp_port", s_port);
                 }
+                log_storage_logf("tcp connect %s:%u -> %s", s_ip, (unsigned)s_port,
+                                 s_connected ? "OK" : "FAILED");
             } else {
                 /* Test read */
                 modbus_request_t req = {

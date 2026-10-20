@@ -1,5 +1,6 @@
 #include "web_server.h"
 #include "app_config.h"
+#include "log_storage.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include <string.h>
@@ -15,11 +16,27 @@ static esp_err_t root_handler(httpd_req_t *req)
                        "<p>API endpoints:</p>"
                        "<ul>"
                        "<li><a href='/report'>/report</a> - Diagnostic report</li>"
+                       "<li><a href='/log'>/log</a> - Operation log</li>"
                        "<li><a href='/data'>/data</a> - Export data</li>"
                        "</ul>"
                        "</body></html>";
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, html, strlen(html));
+}
+
+/* 操作日志：论文 FR9 写了「浏览器可浏览报文日志」，之前这个功能只存在于组件里，
+ * 没有调用者、也没有出口 —— 日志文件永远是空的。 */
+static esp_err_t log_handler(httpd_req_t *req)
+{
+    /* 8KB 上限（见 log_storage.c），一次读完不会撑爆堆 */
+    static char buf[4096];
+    log_storage_read(buf, sizeof(buf), 200);
+
+    httpd_resp_set_type(req, "text/plain; charset=utf-8");
+    if (buf[0] == '\0') {
+        return httpd_resp_send(req, "(log empty)", HTTPD_RESP_USE_STRLEN);
+    }
+    return httpd_resp_send(req, buf, HTTPD_RESP_USE_STRLEN);
 }
 
 static esp_err_t report_handler(httpd_req_t *req)
@@ -65,8 +82,10 @@ esp_err_t web_server_start(void)
 
     httpd_uri_t root = { .uri = "/", .method = HTTP_GET, .handler = root_handler };
     httpd_uri_t report = { .uri = "/report", .method = HTTP_GET, .handler = report_handler };
+    httpd_uri_t log = { .uri = "/log", .method = HTTP_GET, .handler = log_handler };
     httpd_register_uri_handler(s_server, &root);
     httpd_register_uri_handler(s_server, &report);
+    httpd_register_uri_handler(s_server, &log);
 
     ESP_LOGI(TAG, "Web server started on port %d", WEB_SERVER_PORT);
     return ESP_OK;

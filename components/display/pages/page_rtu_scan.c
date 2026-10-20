@@ -6,6 +6,7 @@
 #include "app_config.h"
 #include "modbus_master.h"
 #include "device_scanner.h"
+#include "log_storage.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -49,6 +50,10 @@ static void do_scan(void)
     device_scan_start(&cfg, &s_result);
     s_scanning = false;
     s_need_redraw = true;
+
+    log_storage_logf("scan: %d device(s), addr %d-%d, %d baud rate(s)",
+                     s_result.device_count, cfg.addr_start, cfg.addr_end,
+                     s_result.baud_rates_tested);
 }
 
 static void rtu_enter(void)

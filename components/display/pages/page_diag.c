@@ -8,6 +8,7 @@
 #include "modbus_common.h"
 #include "packet_capture.h"
 #include "frame_parser.h"
+#include "log_storage.h"
 #include "wifi_manager.h"
 #include "web_server.h"
 #include "mdns_service.h"
@@ -163,6 +164,10 @@ static void diag_key(uint8_t key)
             if (n > 0 && (size_t)n < sizeof(html)) {
                 report_export_to_file(html, "report.html");
             }
+            log_storage_logf("report exported: score=%d frames=%lu errors=%lu",
+                             s_report.health_score,
+                             (unsigned long)s_report.total_frames,
+                             (unsigned long)s_report.error_frames);
             s_need_redraw = true;
             break;
         }

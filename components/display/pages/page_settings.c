@@ -3,6 +3,7 @@
 #include "ui_theme.h"
 #include "ui_widgets.h"
 #include "nvs_config.h"
+#include "log_storage.h"
 #include "modbus_master.h"
 #include <stdio.h>
 
@@ -89,6 +90,8 @@ static void settings_key(uint8_t key)
                 modbus_master_get_config(&cfg);
                 cfg.baud_rate = s_baud_rates[s_baud_idx];
                 modbus_master_configure(&cfg);
+                log_storage_logf("config: baud=%lu (saved to NVS)",
+                                 (unsigned long)cfg.baud_rate);
             }
             s_need_redraw = true;
             break;

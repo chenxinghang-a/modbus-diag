@@ -6,4 +6,5 @@ idf_component_register(
         "mdns_service.c"
     INCLUDE_DIRS "."
     REQUIRES esp_wifi esp_netif nvs_flash espressif__mdns esp_http_server common_config
+        storage
 )
