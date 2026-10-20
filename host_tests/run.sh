@@ -31,6 +31,17 @@ echo "=== 波形信号处理（SMA / 幅值 / 触发） ==="
 "$OUT_DIR/test_signal" || fail=1
 
 echo
+echo "=== 诊断报告生成（JSON / HTML / 诊断建议） ==="
+"$CC" $CFLAGS \
+    -I host_tests/stubs \
+    -I components/diag_report \
+    -I components/modbus_core \
+    host_tests/test_report.c \
+    components/diag_report/report_generator.c \
+    -o "$OUT_DIR/test_report"
+"$OUT_DIR/test_report" || fail=1
+
+echo
 if [ "$fail" -ne 0 ]; then
     echo "!!! 有用例失败"
     exit 1
