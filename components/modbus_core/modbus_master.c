@@ -201,8 +201,10 @@ modbus_err_t modbus_read_coils(uint8_t slave, uint16_t addr, uint16_t count,
     modbus_err_t err = modbus_master_send_recv(&req, &resp);
     if (err != MODBUS_OK) return err;
 
-    if (coil_data && coil_count) {
-        *coil_count = count;
+    /* 只要给了输出缓冲就填，count 是可选的回填 —— 原来写成 `if (coil_data && coil_count)`，
+     * 调用方传 NULL 想「只要数据不要计数」时会静默拿不到任何数据。 */
+    if (coil_data) {
+        if (coil_count) *coil_count = count;
         int bytes = (count + 7) / 8;
         if (bytes > resp.data_len) bytes = resp.data_len;
         memcpy(coil_data, resp.data, bytes);
@@ -245,8 +247,9 @@ modbus_err_t modbus_read_holding_regs(uint8_t slave, uint16_t addr, uint16_t cou
     modbus_err_t err = modbus_master_send_recv(&req, &resp);
     if (err != MODBUS_OK) return err;
 
-    if (values && reg_count) {
-        *reg_count = count;
+    /* 同 read_coils 的坑：给了 values 就填，reg_count 只做可选回填 */
+    if (values) {
+        if (reg_count) *reg_count = count;
         int n = resp.data_len / 2;
         if (n > count) n = count;
         for (int i = 0; i < n; i++) {
@@ -269,8 +272,9 @@ modbus_err_t modbus_read_input_regs(uint8_t slave, uint16_t addr, uint16_t count
     modbus_err_t err = modbus_master_send_recv(&req, &resp);
     if (err != MODBUS_OK) return err;
 
-    if (values && reg_count) {
-        *reg_count = count;
+    /* 同 read_coils 的坑：给了 values 就填，reg_count 只做可选回填 */
+    if (values) {
+        if (reg_count) *reg_count = count;
         int n = resp.data_len / 2;
         if (n > count) n = count;
         for (int i = 0; i < n; i++) {

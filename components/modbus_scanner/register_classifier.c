@@ -84,9 +84,20 @@ esp_err_t register_classify(uint8_t slave_addr, device_info_t *dev)
                 grp->writable = false;
                 if (type == REG_TYPE_HOLDING) {
                     uint16_t orig_val = 0;
-                    modbus_read_holding_regs(slave_addr, sample_addrs[i], 1, &orig_val, NULL);
-                    modbus_err_t werr = modbus_write_single_reg(slave_addr, sample_addrs[i], orig_val);
-                    grp->writable = (werr == MODBUS_OK);
+                    uint16_t got = 0;
+                    /* reg_count 必须给：modbus_read_holding_regs 里是
+                     *     if (values && reg_count) { *reg_count = count; ...copy... }
+                     * 传 NULL 时 values 根本不会被写入，orig_val 保持 0，
+                     * 下一行「把原值写回去」就变成「把寄存器清零」——
+                     * 点一次分类就把现场设备的保持寄存器抹成 0。
+                     * 所以：读成功才探测，读失败就直接判为不可写。 */
+                    if (modbus_read_holding_regs(slave_addr, sample_addrs[i], 1,
+                                                 &orig_val, &got) == MODBUS_OK) {
+                        modbus_err_t werr = modbus_write_single_reg(slave_addr,
+                                                                    sample_addrs[i],
+                                                                    orig_val);
+                        grp->writable = (werr == MODBUS_OK);
+                    }
                 }
                 dev->reg_group_count++;
             }
