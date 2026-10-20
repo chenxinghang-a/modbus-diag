@@ -9,6 +9,30 @@ static const char *TAG = "scanner";
 
 static const uint32_t default_baud_rates[] = {9600, 19200, 38400, 57600, 115200};
 
+/* 最近一次扫描结果（指向调用方传进来的 scan_result_t，生命周期由页面持有的静态量保证） */
+static const scan_result_t *s_last_result = NULL;
+static int s_selected = 0;
+
+const scan_result_t *device_scan_last_result(void)
+{
+    return s_last_result;
+}
+
+const device_info_t *device_scan_selected_device(void)
+{
+    if (!s_last_result || s_selected < 0 || s_selected >= s_last_result->device_count) {
+        return NULL;
+    }
+    return &s_last_result->devices[s_selected];
+}
+
+void device_scan_select_device(int index)
+{
+    if (!s_last_result) return;
+    if (index < 0 || index >= s_last_result->device_count) return;
+    s_selected = index;
+}
+
 esp_err_t device_read_mei(uint8_t slave, char *id_buf, size_t buf_size)
 {
     modbus_request_t req = {
@@ -37,6 +61,9 @@ esp_err_t device_scan_start(const scan_config_t *cfg, scan_result_t *result)
     if (!cfg || !result) return ESP_ERR_INVALID_ARG;
 
     memset(result, 0, sizeof(scan_result_t));
+    /* 记下「当前这轮结果」给详情页用；选中项复位到第一台 */
+    s_last_result = result;
+    s_selected = 0;
     uint32_t *bauds = (uint32_t *)cfg->baud_rates;
     int baud_cnt = cfg->baud_count;
 
@@ -49,15 +76,20 @@ esp_err_t device_scan_start(const scan_config_t *cfg, scan_result_t *result)
     int total_steps = baud_cnt * total_addrs;
     int step = 0;
 
+    /* 扫描会反复改波特率，扫完必须把用户原本的配置**原样**还回去。
+     * 原来这里 restore 成 `{ .baud_rate = RS485_DEFAULT_BAUD }`：
+     * ① 用户的波特率丢了；② 指定初始化把 timeout_ms 清零 → 之后的每个请求都立刻超时。 */
+    modbus_config_t saved;
+    modbus_master_get_config(&saved);
+
     ESP_LOGI(TAG, "Scanning %d baud rates, addresses %d-%d", baud_cnt, cfg->addr_start, cfg->addr_end);
 
     for (int b = 0; b < baud_cnt; b++) {
-        /* Reconfigure baud rate */
-        modbus_config_t mcfg = {
-            .baud_rate = bauds[b],
-            .timeout_ms = cfg->timeout_ms ? cfg->timeout_ms : 50,
-            .retry_count = cfg->retry_count ? cfg->retry_count : 1,
-        };
+        /* Reconfigure baud rate（在现有配置上只改三个字段，别把 data/stop/parity 清零） */
+        modbus_config_t mcfg = saved;
+        mcfg.baud_rate = bauds[b];
+        mcfg.timeout_ms = cfg->timeout_ms ? cfg->timeout_ms : 50;
+        mcfg.retry_count = cfg->retry_count ? cfg->retry_count : 1;
         modbus_master_configure(&mcfg);
 
         for (uint8_t addr = cfg->addr_start; addr <= cfg->addr_end; addr++) {
@@ -98,9 +130,8 @@ esp_err_t device_scan_start(const scan_config_t *cfg, scan_result_t *result)
     result->baud_rates_tested = baud_cnt;
     result->addresses_tested = total_addrs;
 
-    /* Restore default baud */
-    modbus_config_t def = { .baud_rate = RS485_DEFAULT_BAUD };
-    modbus_master_configure(&def);
+    /* 还原用户原本的串口参数（波特率/超时/重试/校验位原样还回去） */
+    modbus_master_configure(&saved);
 
     ESP_LOGI(TAG, "Scan complete: %d devices found", result->device_count);
     return ESP_OK;

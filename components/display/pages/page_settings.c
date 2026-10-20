@@ -78,7 +78,16 @@ static void settings_key(uint8_t key)
                 /* Cycle baud rate */
                 s_baud_idx = (s_baud_idx + 1) % s_baud_count;
                 nvs_config_set_u32("baud", s_baud_rates[s_baud_idx]);
-                modbus_config_t cfg = { .baud_rate = s_baud_rates[s_baud_idx] };
+
+                /* 必须先取回整份配置再改。原来写的是
+                 *   modbus_config_t cfg = { .baud_rate = ... };
+                 * C 的指定初始化会把没提到的字段**全部清零** ——
+                 * timeout_ms 变 0 → pdMS_TO_TICKS(0) → 每个请求立刻超时，
+                 * retry_count 变 0 → 一次都不重试。表现就是「改完波特率通信全废，
+                 * 重启才好」，而重启又把新波特率丢了。 */
+                modbus_config_t cfg;
+                modbus_master_get_config(&cfg);
+                cfg.baud_rate = s_baud_rates[s_baud_idx];
                 modbus_master_configure(&cfg);
             }
             s_need_redraw = true;

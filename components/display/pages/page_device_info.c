@@ -3,13 +3,14 @@
 #include "ui_widgets.h"
 #include "ui_theme.h"
 #include "register_classifier.h"
+#include "device_scanner.h"
 #include "modbus_master.h"
 #include <stdio.h>
 #include <string.h>
 
 static bool s_need_redraw = true;
 static device_info_t s_dev;
-static int s_reg_view_offset = 0;
+static bool s_have_dev = false;
 static bool s_classifying = false;
 
 static const char *reg_type_str[] = {"Coil", "DiscInp", "Holding", "Input"};
@@ -17,10 +18,22 @@ static const char *reg_type_str[] = {"Coil", "DiscInp", "Holding", "Input"};
 static void dev_enter(void)
 {
     s_need_redraw = true;
-    /* TODO: get selected device from scan result */
     memset(&s_dev, 0, sizeof(s_dev));
-    s_dev.slave_addr = 1;
-    s_dev.baud_rate = 9600;
+
+    /* 用扫描页真正选中的那台。原来这里留了一句 TODO，然后把 slave_addr=1 /
+     * baud_rate=9600 写死 —— 选第几台进去看到的都是同一个。 */
+    const device_info_t *sel = device_scan_selected_device();
+    if (sel) {
+        s_dev = *sel;
+        s_have_dev = true;
+    } else {
+        /* 没有扫描结果时，至少把当前主站参数显示出来，别显示一个假的 9600 */
+        modbus_config_t cfg;
+        modbus_master_get_config(&cfg);
+        s_dev.baud_rate = cfg.baud_rate;
+        s_dev.slave_addr = 0;
+        s_have_dev = false;
+    }
 }
 
 static void dev_exit(void)
@@ -36,6 +49,15 @@ static void dev_update(void)
     ui_status_bar_draw("Device Info", false, false);
 
     char buf[80];
+    if (!s_have_dev) {
+        snprintf(buf, sizeof(buf), "No device selected (Baud: %lu)",
+                 (unsigned long)s_dev.baud_rate);
+        tft_draw_string(10, 24, buf, THEME_WARNING, THEME_BG, FONT_NORMAL);
+        tft_draw_string(10, 44, "Scan first, then pick a device", THEME_FG, THEME_BG, FONT_SMALL);
+        tft_draw_string(20, TFT_HEIGHT - 18, "[BACK] Return", THEME_FG, THEME_BG, FONT_SMALL);
+        return;
+    }
+
     snprintf(buf, sizeof(buf), "Addr: %d  Baud: %lu", s_dev.slave_addr, (unsigned long)s_dev.baud_rate);
     tft_draw_string(10, 24, buf, THEME_FG, THEME_BG, FONT_NORMAL);
 

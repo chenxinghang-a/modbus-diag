@@ -35,6 +35,11 @@ static void rs485_rx_enable(void)
     gpio_set_level(RS485_PIN_DE, 0);
 }
 
+void modbus_master_get_config(modbus_config_t *out)
+{
+    if (out) *out = s_cfg;
+}
+
 esp_err_t modbus_master_configure(const modbus_config_t *cfg)
 {
     if (cfg) {

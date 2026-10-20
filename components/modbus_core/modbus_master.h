@@ -14,6 +14,11 @@ void modbus_master_set_uart_mode(app_uart_mode_t mode);
 /* Configure RS-485 parameters */
 esp_err_t modbus_master_configure(const modbus_config_t *cfg);
 
+/* Read back the configuration currently in effect.
+ * 用途：只想改一个字段时先取回整份再改，别用 `{ .baud_rate = x }` 初始化 ——
+ * C 的指定初始化会把其余字段**全部清零**，timeout_ms 变 0 就等于「立刻超时」。 */
+void modbus_master_get_config(modbus_config_t *out);
+
 /* Send request and wait for response (blocking) */
 modbus_err_t modbus_master_send_recv(const modbus_request_t *req, modbus_response_t *resp);
 

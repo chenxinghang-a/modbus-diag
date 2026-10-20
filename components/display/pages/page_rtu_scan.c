@@ -14,7 +14,6 @@ static bool s_scanning = false;
 static scan_result_t s_result;
 static int s_progress = 0;
 static int s_progress_total = 0;
-static int s_selected_device = 0;
 
 static ui_menu_t s_menu;
 static const char *s_menu_labels[SCANNER_MAX_DEVICES + 1];
@@ -129,6 +128,9 @@ static void rtu_key(uint8_t key)
             if (s_result.device_count > 0 && s_menu.selected == s_result.device_count) {
                 do_scan();  /* Rescan */
             } else if (s_result.device_count > 0) {
+                /* 把「选的是哪台」传下去：详情页原来硬编码 addr=1/9600，
+                 * 选第二台进去看到的还是第一台。 */
+                device_scan_select_device(s_menu.selected);
                 gui_manager_goto(PAGE_DEVICE_INFO);
             } else {
                 do_scan();

@@ -17,6 +17,7 @@
 #include "gui_manager.h"
 #include "key_scan.h"
 #include "modbus_master.h"
+#include "nvs_config.h"
 
 static const char *TAG = "main";
 
@@ -127,6 +128,23 @@ static void modbus_task(void *arg)
 {
     ESP_LOGI(TAG, "Modbus task started");
     modbus_master_init();
+
+    /* 载入上次保存的串口参数。原来只在设置页里 set 进 NVS，开机从来不读回来 ——
+     * 用户把波特率改成 115200，重启就退回默认值，等于「设置没保存」。
+     * 改一个字段前先 modbus_master_get_config() 取整份，别用指定初始化（其余字段会清零）。 */
+    modbus_config_t cfg;
+    uint32_t v;
+    modbus_master_get_config(&cfg);
+    nvs_config_get_u32("baud", &v, cfg.baud_rate);
+    cfg.baud_rate = v;
+    nvs_config_get_u32("parity", &v, (uint32_t)cfg.parity);
+    cfg.parity = (uint8_t)v;
+    nvs_config_get_u32("timeout_ms", &v, cfg.timeout_ms);
+    cfg.timeout_ms = v;
+    modbus_master_configure(&cfg);
+    ESP_LOGI(TAG, "RS-485 restored: %lu baud, parity %u, timeout %lu ms",
+             (unsigned long)cfg.baud_rate, (unsigned)cfg.parity,
+             (unsigned long)cfg.timeout_ms);
 
     while (1) {
         modbus_master_process();

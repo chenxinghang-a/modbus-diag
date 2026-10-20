@@ -29,3 +29,9 @@ esp_err_t device_scan_quick(uint32_t baud, uint8_t addr_start, uint8_t addr_end,
 
 /* Try to read device ID via MEI (FC43) */
 esp_err_t device_read_mei(uint8_t slave, char *id_buf, size_t buf_size);
+
+/* 页面之间的传参：最近一次 scan_result_t（由 device_scan_start 记下指针）与当前选中项。
+ * 详情页必须显示「用户真正选的那台」，不能像原来那样把 addr=1/9600 硬编码进去。 */
+const scan_result_t *device_scan_last_result(void);
+const device_info_t *device_scan_selected_device(void);
+void device_scan_select_device(int index);
