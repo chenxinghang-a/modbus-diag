@@ -7,6 +7,8 @@
 #include "modbus_master.h"
 #include "device_scanner.h"
 #include "log_storage.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -37,6 +39,8 @@ static void do_scan(void)
     s_progress = 0;
     s_need_redraw = true;
 
+    TickType_t t0 = xTaskGetTickCount();
+
     scan_config_t cfg = {
         .baud_rates = NULL,  /* use defaults */
         .baud_count = 0,
@@ -51,9 +55,14 @@ static void do_scan(void)
     s_scanning = false;
     s_need_redraw = true;
 
-    log_storage_logf("scan: %d device(s), addr %d-%d, %d baud rate(s)",
+    /* scan_duration_ms 这个字段以前**从来没被赋值过**，但论文 6.x 的测试表里
+     * 专门有一列「扫描耗时(s)」。这里把实测耗时填上，页面也显示出来。 */
+    s_result.scan_duration_ms = (uint32_t)((xTaskGetTickCount() - t0) * portTICK_PERIOD_MS);
+
+    log_storage_logf("scan: %d device(s), addr %d-%d, %d baud, %lu ms",
                      s_result.device_count, cfg.addr_start, cfg.addr_end,
-                     s_result.baud_rates_tested);
+                     s_result.baud_rates_tested,
+                     (unsigned long)s_result.scan_duration_ms);
 }
 
 static void rtu_enter(void)
@@ -84,8 +93,11 @@ static void rtu_update(void)
                         s_progress_total > 0 ? (s_progress * 100 / s_progress_total) : 0,
                         THEME_PROGRESS_FG, THEME_PROGRESS_BG);
     } else if (s_result.device_count > 0) {
-        char buf[32];
-        snprintf(buf, sizeof(buf), "Found %d devices", s_result.device_count);
+        char buf[40];
+        snprintf(buf, sizeof(buf), "Found %d / %d addr, %lu.%lus",
+                 s_result.device_count, s_result.addresses_tested,
+                 (unsigned long)(s_result.scan_duration_ms / 1000),
+                 (unsigned long)((s_result.scan_duration_ms % 1000) / 100));
         tft_draw_string(20, 28, buf, THEME_SUCCESS, THEME_BG, FONT_NORMAL);
 
         /* Build menu labels */

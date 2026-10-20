@@ -98,8 +98,11 @@ static void dev_update(void)
     snprintf(buf, sizeof(buf), "Addr: %d  Baud: %lu", s_dev.slave_addr, (unsigned long)s_dev.baud_rate);
     tft_draw_string(10, 24, buf, THEME_FG, THEME_BG, FONT_NORMAL);
 
-    snprintf(buf, sizeof(buf), "Resp: %ld us", (long)s_dev.response_time_us);
-    tft_draw_string(10, 38, buf, THEME_FG, THEME_BG, FONT_NORMAL);
+    /* online 字段以前只写不读（扫描命中时置 true，界面从来不显示） */
+    snprintf(buf, sizeof(buf), "Resp: %ld us  %s", (long)s_dev.response_time_us,
+             s_dev.online ? "ONLINE" : "OFFLINE");
+    tft_draw_string(10, 38, buf, s_dev.online ? THEME_SUCCESS : THEME_WARNING,
+                    THEME_BG, FONT_NORMAL);
 
     if (s_dev.device_id[0]) {
         snprintf(buf, sizeof(buf), "ID: %s", s_dev.device_id);
