@@ -6,6 +6,8 @@
 #include "frame_parser.h"
 #include "traffic_stats.h"
 #include "health_metrics.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -57,6 +59,18 @@ static void capture_update(void)
     s_need_redraw = false;
 
     if (s_capturing) {
+        /* FPS/bps 只在 traffic_stats_tick() 里结算，而全工程没人调它 → 页面上
+         * 「FPS: 0 / bps: 0」永远是 0。这里按秒节流调一次：没帧的时候也要调，
+         * 否则停止发包后 FPS 会一直停在最后一个值。 */
+        static TickType_t s_last_tick = 0;
+        TickType_t now = xTaskGetTickCount();
+        if (s_last_tick == 0) {
+            s_last_tick = now;
+        } else if (now - s_last_tick >= pdMS_TO_TICKS(1000)) {
+            s_last_tick = now;
+            traffic_stats_tick();
+        }
+
         /* Process captured frames */
         captured_frame_t frame;
         while (packet_capture_get_frame(&frame)) {
@@ -91,8 +105,15 @@ static void capture_update(void)
              stats.error_rate * 100.0f, (unsigned long)stats.frames_per_sec);
     tft_draw_string(10, 36, buf, THEME_FG, THEME_BG, FONT_SMALL);
 
-    snprintf(buf, sizeof(buf), "Resp: avg=%ld max=%ld us",
-             (long)stats.avg_response_us, (long)stats.max_response_us);
+    /* 抓包是被动的，没有「请求→响应」配对，量不出响应时间：
+     * add_frame 一直传 response_us=0，min 就停在初值 INT32_MAX。
+     * 老代码直接打印 avg/max，页面上永远是一对 0，看着像「测得很快」。 */
+    if (stats.min_response_us == INT32_MAX) {
+        snprintf(buf, sizeof(buf), "Resp: -- (passive, no timing)");
+    } else {
+        snprintf(buf, sizeof(buf), "Resp: avg=%ld max=%ld us",
+                 (long)stats.avg_response_us, (long)stats.max_response_us);
+    }
     tft_draw_string(10, 48, buf, THEME_FG, THEME_BG, FONT_SMALL);
 
     /* Show recent frames —— 从本地环里读，**不要**再调 packet_capture_get_frame()，

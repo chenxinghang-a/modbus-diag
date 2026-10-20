@@ -95,13 +95,14 @@ static void diag_update(void)
     snprintf(buf, sizeof(buf), "ErrRate: %.2f%%", s_report.error_rate * 100.0f);
     tft_draw_string(10, 64, buf, THEME_FG, THEME_BG, FONT_SMALL);
 
-    if (has_data) {
+    /* 有帧 ≠ 有响应时间：被动抓包没有请求/响应配对，min_response_us 会停在 INT32_MAX。
+     * 只看 total_frames 的话，这里会打印出 2147483647。 */
+    if (has_data && s_report.min_response_us != INT32_MAX) {
         snprintf(buf, sizeof(buf), "Resp: min=%ld avg=%ld max=%ld us",
                  (long)s_report.min_response_us, (long)s_report.avg_response_us,
                  (long)s_report.max_response_us);
     } else {
-        /* min_response_us 初值是 INT32_MAX，没数据时直接打出来会是 2147483647 */
-        snprintf(buf, sizeof(buf), "Resp: -- (no samples)");
+        snprintf(buf, sizeof(buf), "Resp: -- (no timing)");
     }
     tft_draw_string(10, 76, buf, THEME_FG, THEME_BG, FONT_SMALL);
 

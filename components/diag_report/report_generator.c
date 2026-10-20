@@ -7,6 +7,12 @@ int report_generate_json(char *buf, size_t buf_size, const health_report_t *heal
                          const char *device_info)
 {
     if (!buf || !health) return 0;
+
+    /* min_response_us 初值是 INT32_MAX：没有计时样本时必须落成 -1，
+     * 否则 JSON 里会出现 2147483647，下游画图会把坐标轴拉到天上。 */
+    bool has_timing = (health->total_frames > 0) &&
+                      (health->min_response_us != INT32_MAX);
+
     return snprintf(buf, buf_size,
         "{"
         "\"device\":\"%s\","
@@ -35,10 +41,10 @@ int report_generate_json(char *buf, size_t buf_size, const health_report_t *heal
         device_info ? device_info : "unknown",
         health->health_score,
         health_metrics_grade(health->health_score),
-        (long)health->min_response_us,
-        (long)health->max_response_us,
-        (long)health->avg_response_us,
-        (long)health->jitter_us,
+        (long)(has_timing ? health->min_response_us : -1),
+        (long)(has_timing ? health->max_response_us : -1),
+        (long)(has_timing ? health->avg_response_us : -1),
+        (long)(has_timing ? health->jitter_us : -1),
         (unsigned long)health->total_frames,
         (unsigned long)health->error_frames,
         (unsigned long)health->exception_frames,
@@ -108,9 +114,11 @@ int report_generate_html(char *buf, size_t buf_size, const health_report_t *heal
                           : "尚未采集到数据：先在「报文抓取」页开始抓包，再导出报告。");
     }
 
-    /* 响应时间四个值：没样本时 min_response_us 是 INT32_MAX，直接打出来是天文数字 */
+    /* 响应时间四个值：有帧不代表有计时样本（被动抓包没有请求/响应配对），
+     * 没样本时 min_response_us 会停在 INT32_MAX，直接打出来是天文数字。 */
+    bool has_timing = has_data && (health->min_response_us != INT32_MAX);
     char min_s[24], max_s[24], avg_s[24], jit_s[24];
-    if (has_data) {
+    if (has_timing) {
         snprintf(min_s, sizeof(min_s), "%ld us", (long)health->min_response_us);
         snprintf(max_s, sizeof(max_s), "%ld us", (long)health->max_response_us);
         snprintf(avg_s, sizeof(avg_s), "%ld us", (long)health->avg_response_us);
