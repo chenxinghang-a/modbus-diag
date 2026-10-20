@@ -1,6 +1,7 @@
 #include "device_scanner.h"
 #include "modbus_master.h"
 #include "modbus_common.h"
+#include "modbus_tcp.h"
 #include "app_config.h"
 #include "app_event.h"
 #include "esp_log.h"
@@ -76,6 +77,12 @@ esp_err_t device_scan_start(const scan_config_t *cfg, scan_result_t *result)
     int total_addrs = cfg->addr_end - cfg->addr_start + 1;
     int total_steps = baud_cnt * total_addrs;
     int step = 0;
+
+    /* 走 TCP 时波特率没有意义：只扫一遍地址，别把 5 档波特率各跑一遍（白等 5 倍时间） */
+    if (modbus_tcp_is_connected()) {
+        baud_cnt = 1;
+        total_steps = total_addrs;
+    }
 
     /* 扫描会反复改波特率，扫完必须把用户原本的配置**原样**还回去。
      * 原来这里 restore 成 `{ .baud_rate = RS485_DEFAULT_BAUD }`：

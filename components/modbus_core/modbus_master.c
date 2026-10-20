@@ -1,5 +1,6 @@
 #include "modbus_master.h"
 #include "modbus_rtu.h"
+#include "modbus_tcp.h"
 #include "app_config.h"
 #include "driver/uart.h"
 #include "driver/gpio.h"
@@ -121,6 +122,15 @@ void modbus_master_set_uart_mode(app_uart_mode_t mode)
 modbus_err_t modbus_master_send_recv(const modbus_request_t *req, modbus_response_t *resp)
 {
     if (!req || !resp) return MODBUS_ERR_INVALID_PARAM;
+
+    /* TCP 已连接时优先走网络：这样设备扫描、寄存器分类、读写全都自动支持 TCP，
+     * 而不是只有 TCP 页那一次「测试读」能用。两条路径的请求/响应结构体是同一套，
+     * 所以这里只是换传输层，上层代码一行都不用改。 */
+    if (modbus_tcp_is_connected()) {
+        modbus_err_t err = modbus_tcp_send_recv(req, resp);
+        if (resp->response_time_us > 0) s_last_response_time_us = resp->response_time_us;
+        return err;
+    }
 
     /* Check if UART is available */
     if (s_uart_mode == APP_UART_MODE_CAPTURE) {
