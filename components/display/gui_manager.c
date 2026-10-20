@@ -26,10 +26,11 @@ static void key_event_handler(const app_event_t *evt)
 {
     uint8_t key = 0xFF;
     switch (evt->id) {
-        case APP_EVT_KEY_UP:    key = 0; break;
-        case APP_EVT_KEY_DOWN:  key = 1; break;
-        case APP_EVT_KEY_OK:    key = 2; break;
-        case APP_EVT_KEY_BACK:  key = 3; break;
+        case APP_EVT_KEY_UP:      key = 0; break;
+        case APP_EVT_KEY_DOWN:    key = 1; break;
+        case APP_EVT_KEY_OK:      key = 2; break;
+        case APP_EVT_KEY_BACK:    key = 3; break;
+        case APP_EVT_KEY_OK_LONG: key = 4; break;   /* 长按 OK：页面自行决定用不用 */
         default: return;
     }
     if (s_current < PAGE_MAX && s_pages[s_current] && s_pages[s_current]->on_key) {
@@ -52,6 +53,9 @@ esp_err_t gui_manager_init(void)
     app_event_register(APP_EVT_KEY_DOWN, key_event_handler);
     app_event_register(APP_EVT_KEY_OK, key_event_handler);
     app_event_register(APP_EVT_KEY_BACK, key_event_handler);
+    /* key_scan 会在按住 OK 超过 800ms 时抛 APP_EVT_KEY_OK_LONG，但这里一直没注册 ——
+     * 事件发出来没人接，长按等于没反应（论文 5.x 却写了「长按用于功能扩展」）。 */
+    app_event_register(APP_EVT_KEY_OK_LONG, key_event_handler);
 
     /* Enter home page */
     if (s_pages[PAGE_HOME] && s_pages[PAGE_HOME]->on_enter) {

@@ -153,13 +153,25 @@ static void dev_update(void)
 
     if (s_edit) {
         tft_draw_string(10, TFT_HEIGHT - 18,
-                        "[UP/DN] Digit  [OK] Next/Write  [BACK] Cancel",
+                        "[UP/DN] Digit  [OK] Next  [OK hold] Write  [BACK] Cancel",
                         THEME_FG, THEME_BG, FONT_SMALL);
     } else {
         tft_draw_string(10, TFT_HEIGHT - 18,
-                        "[UP/DN] Pick  [OK] Edit/Classify  [BACK] Return",
+                        "[UP/DN] Pick  [OK] Edit/Classify  [OK hold] Rescan",
                         THEME_FG, THEME_BG, FONT_SMALL);
     }
+}
+
+static void dev_classify(void)
+{
+    s_classifying = true;
+    s_need_redraw = true;
+    register_classify(s_dev.slave_addr, &s_dev);
+    s_classifying = false;
+    s_cursor = 0;
+    s_need_redraw = true;
+    log_storage_logf("classify: addr=%d -> %d register group(s)",
+                     s_dev.slave_addr, s_dev.reg_group_count);
 }
 
 static void dev_commit_write(int gi, uint16_t addr)
@@ -227,6 +239,9 @@ static void dev_key(uint8_t key)
                     dev_commit_write(gi, addr);
                 }
                 return;
+            case 4:  /* 长按 OK：不管在第几位，直接提交 */
+                dev_commit_write(gi, addr);
+                return;
             case 3:  /* BACK：取消 */
                 s_edit = false;
                 s_msg[0] = '\0';
@@ -259,14 +274,7 @@ static void dev_key(uint8_t key)
         case 2: /* OK */
             if (s_dev.reg_group_count == 0) {
                 /* 还没分类：先扫寄存器 */
-                s_classifying = true;
-                s_need_redraw = true;
-                register_classify(s_dev.slave_addr, &s_dev);
-                s_classifying = false;
-                s_cursor = 0;
-                s_need_redraw = true;
-                log_storage_logf("classify: addr=%d -> %d register group(s)",
-                                 s_dev.slave_addr, s_dev.reg_group_count);
+                dev_classify();
             } else if (gi >= 0) {
                 /* 进编辑前先把现值读出来，别让人从 0 开始瞎猜 */
                 s_edit_val = 0;
@@ -285,6 +293,9 @@ static void dev_key(uint8_t key)
                 s_edit = true;
                 s_need_redraw = true;
             }
+            break;
+        case 4: /* 长按 OK：重新分类（寄存器表可能不准，扫一遍刷新） */
+            if (s_have_dev) dev_classify();
             break;
         case 3: /* BACK */
             gui_manager_back();
