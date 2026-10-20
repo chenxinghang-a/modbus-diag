@@ -6,6 +6,8 @@
 #include "report_generator.h"
 #include "report_export.h"
 #include "modbus_common.h"
+#include "packet_capture.h"
+#include "frame_parser.h"
 #include "wifi_manager.h"
 #include "web_server.h"
 #include "mdns_service.h"
@@ -14,21 +16,54 @@
 
 static bool s_need_redraw = true;
 static bool s_monitoring = false;
+static bool s_uart_busy = false;   /* 上一次点「开始监测」被拒：UART 正被 Modbus 主站占着 */
+static int  s_pending = 0;         /* 距上次重绘又收了多少帧（攒够再刷，别每帧全屏重画） */
 static health_report_t s_report;
+
+static void diag_drain_frames(void)
+{
+    captured_frame_t frame;
+    while (packet_capture_get_frame(&frame)) {
+        parsed_frame_t parsed;
+        if (frame_parser_parse(frame.data, frame.len, &parsed)) {
+            health_metrics_update(0,
+                                  (!frame.crc_valid) || parsed.is_exception,
+                                  parsed.is_exception,
+                                  parsed.is_exception ? parsed.exception_code : 0);
+            s_pending++;
+        }
+    }
+}
 
 static void diag_enter(void)
 {
     s_need_redraw = true;
-    s_monitoring = false;
-    health_metrics_init();
+    s_monitoring = packet_capture_is_running();
+    s_uart_busy = false;
+    /* 用 ensure_init：进本页不该把抓包页刚采到的数据清零 */
+    health_metrics_ensure_init();
 }
 
 static void diag_exit(void)
 {
+    /* 离开页面就别占着 UART：否则抓包页一进来 packet_capture_init() 会删掉队列，
+     * 而后台那个 capture_task 还在往已删除的队列里写。 */
+    if (s_monitoring) {
+        packet_capture_stop();
+        s_monitoring = false;
+    }
 }
 
 static void diag_update(void)
 {
+    if (s_monitoring) {
+        diag_drain_frames();
+        if (s_pending >= 8) {      /* 攒够 8 帧刷一次屏，避免每帧 fill_screen 卡死 UI */
+            s_pending = 0;
+            s_need_redraw = true;
+        }
+    }
+
     if (!s_need_redraw) return;
     s_need_redraw = false;
 
@@ -82,7 +117,13 @@ static void diag_update(void)
     ui_progress_bar(10, 104, 300, 12, has_data ? s_report.health_score : 0,
                     bar_color, THEME_PROGRESS_BG);
 
-    tft_draw_string(10, 124, "[OK] Monitor/Stop", THEME_HIGHLIGHT, THEME_BG, FONT_NORMAL);
+    if (s_monitoring) {
+        tft_draw_string(10, 124, "[OK] Stop Monitor", THEME_ERROR, THEME_BG, FONT_NORMAL);
+    } else if (s_uart_busy) {
+        tft_draw_string(10, 124, "[OK] Start (UART busy!)", THEME_WARNING, THEME_BG, FONT_NORMAL);
+    } else {
+        tft_draw_string(10, 124, "[OK] Start Monitor", THEME_HIGHLIGHT, THEME_BG, FONT_NORMAL);
+    }
     tft_draw_string(10, 144, "[UP] Export JSON", THEME_FG, THEME_BG, FONT_NORMAL);
     tft_draw_string(10, 164, "[DN] Start WiFi+Web", THEME_FG, THEME_BG, FONT_NORMAL);
 
@@ -131,9 +172,20 @@ static void diag_key(uint8_t key)
             web_server_start();
             s_need_redraw = true;
             break;
-        case 2: /* OK - toggle monitoring */
-            s_monitoring = !s_monitoring;
-            if (s_monitoring) health_metrics_init();
+        case 2: /* OK - 真的开始/停止采样（原先只翻转一个标志位，页面永远不动） */
+            if (!s_monitoring) {
+                health_metrics_init();          /* 新一轮采样，从零算 */
+                s_pending = 0;
+                if (packet_capture_start() == ESP_OK) {
+                    s_monitoring = true;
+                    s_uart_busy = false;
+                } else {
+                    s_uart_busy = true;         /* Modbus 主站占着 UART，先停轮询 */
+                }
+            } else {
+                packet_capture_stop();
+                s_monitoring = false;
+            }
             s_need_redraw = true;
             break;
         case 3: /* BACK */

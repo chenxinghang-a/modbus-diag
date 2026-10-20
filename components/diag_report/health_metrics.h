@@ -27,6 +27,9 @@ typedef struct {
 } health_report_t;
 
 void health_metrics_init(void);
+/* 只保证互斥量存在，**不清零已有统计**。
+ * 用于「页面切换时别把上一步采到的数据抹掉」这种场景（init 会清零）。 */
+void health_metrics_ensure_init(void);
 /* exception_code：本次帧若是异常响应就传异常码，否则传 0（MODBUS_EX_NONE） */
 void health_metrics_update(int32_t response_us, bool is_error, bool is_exception,
                            uint8_t exception_code);

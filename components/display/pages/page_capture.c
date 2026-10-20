@@ -11,7 +11,6 @@
 
 static bool s_need_redraw = true;
 static bool s_capturing = false;
-static int s_scroll = 0;
 
 /* 最近帧的本地环形缓冲。
  *
@@ -39,9 +38,9 @@ static void capture_enter(void)
     s_recent_count = 0;
     packet_capture_init();
     traffic_stats_init();
-    /* 诊断页的健康指标由这里喂数据；不先 init 的话 mutex 是 NULL，
-     * health_metrics_update() 会静默返回，诊断页永远停在「无数据」。 */
-    health_metrics_init();
+    /* 诊断页的健康指标由这里喂数据。用 ensure_init 而不是 init：
+     * 进抓包页不该把诊断页刚攒的统计清零。 */
+    health_metrics_ensure_init();
 }
 
 static void capture_exit(void)

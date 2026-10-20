@@ -30,9 +30,19 @@ void health_metrics_init(void)
     xSemaphoreGive(s_mutex);
 }
 
+void health_metrics_ensure_init(void)
+{
+    if (!s_mutex) {
+        s_mutex = xSemaphoreCreateMutex();
+    }
+}
+
 void health_metrics_update(int32_t response_us, bool is_error, bool is_exception,
                            uint8_t exception_code)
 {
+    /* 谁来喂数据都行，别让「没先调 init」变成静默丢数据（踩过：全工程没人 init，
+     * update 直接 return，诊断页永远 0 帧）。 */
+    health_metrics_ensure_init();
     if (!s_mutex) return;
     xSemaphoreTake(s_mutex, portMAX_DELAY);
 
