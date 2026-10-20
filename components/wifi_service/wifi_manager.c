@@ -1,5 +1,6 @@
 #include "wifi_manager.h"
 #include "app_config.h"
+#include "app_event.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_netif.h"
@@ -17,10 +18,14 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
         switch (event_id) {
             case WIFI_EVENT_STA_CONNECTED:
                 ESP_LOGI(TAG, "STA connected");
+                /* 再往应用事件总线转一道：论文的事件表里 WIFI_CONNECTED /
+                 * DISCONNECTED / GOT_IP 三个都列了，但此前一次也没发过。 */
+                app_event_post(APP_EVT_WIFI_CONNECTED, 0, NULL);
                 break;
             case WIFI_EVENT_STA_DISCONNECTED:
                 s_connected = false;
                 ESP_LOGI(TAG, "STA disconnected");
+                app_event_post(APP_EVT_WIFI_DISCONNECTED, 0, NULL);
                 break;
             case WIFI_EVENT_AP_STACONNECTED: {
                 wifi_event_ap_staconnected_t *evt = event_data;
@@ -33,6 +38,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
         snprintf(s_ip, sizeof(s_ip), IPSTR, IP2STR(&evt->ip_info.ip));
         s_connected = true;
         ESP_LOGI(TAG, "Got IP: %s", s_ip);
+        app_event_post(APP_EVT_WIFI_STA_GOT_IP, 0, NULL);
     }
 }
 

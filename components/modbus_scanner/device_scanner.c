@@ -2,6 +2,7 @@
 #include "modbus_master.h"
 #include "modbus_common.h"
 #include "app_config.h"
+#include "app_event.h"
 #include "esp_log.h"
 #include <string.h>
 
@@ -98,6 +99,10 @@ esp_err_t device_scan_start(const scan_config_t *cfg, scan_result_t *result)
             if (cfg->on_progress) {
                 cfg->on_progress(step, total_steps, cfg->user_data);
             }
+            /* 论文 5.5 把「事件总线」写成架构支柱，还点名扫描进度走
+             * APP_EVT_SCAN_PROGRESS / SCAN_DONE —— 实际只调了回调，事件从没发过。
+             * 事件只带标量（arg），不塞 device_info 指针，避免指向调用方栈上的临时量。 */
+            app_event_post(APP_EVT_SCAN_PROGRESS, (uint32_t)step, NULL);
 
             /* Try reading holding register 0, count 1 */
             uint16_t values[1];
@@ -122,6 +127,7 @@ esp_err_t device_scan_start(const scan_config_t *cfg, scan_result_t *result)
                     if (cfg->on_device_found) {
                         cfg->on_device_found(dev, cfg->user_data);
                     }
+                    app_event_post(APP_EVT_SCAN_DEVICE_FOUND, (uint32_t)addr, NULL);
                 }
             }
         }
@@ -129,6 +135,8 @@ esp_err_t device_scan_start(const scan_config_t *cfg, scan_result_t *result)
 
     result->baud_rates_tested = baud_cnt;
     result->addresses_tested = total_addrs;
+
+    app_event_post(APP_EVT_SCAN_DONE, (uint32_t)result->device_count, NULL);
 
     /* 还原用户原本的串口参数（波特率/超时/重试/校验位原样还回去） */
     modbus_master_configure(&saved);

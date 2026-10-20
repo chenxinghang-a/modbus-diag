@@ -84,6 +84,7 @@ void gui_manager_goto(page_id_t page)
     if (s_pages[s_current] && s_pages[s_current]->on_exit) {
         s_pages[s_current]->on_exit();
     }
+    app_event_post(APP_EVT_PAGE_EXIT, (uint32_t)s_current, NULL);
 
     s_current = page;
 
@@ -91,6 +92,7 @@ void gui_manager_goto(page_id_t page)
     if (s_pages[s_current] && s_pages[s_current]->on_enter) {
         s_pages[s_current]->on_enter();
     }
+    app_event_post(APP_EVT_PAGE_ENTER, (uint32_t)s_current, NULL);
 }
 
 void gui_manager_back(void)
@@ -101,6 +103,7 @@ void gui_manager_back(void)
     if (s_pages[s_current] && s_pages[s_current]->on_exit) {
         s_pages[s_current]->on_exit();
     }
+    app_event_post(APP_EVT_PAGE_EXIT, (uint32_t)s_current, NULL);
 
     s_current = s_page_stack[--s_stack_top];
 
@@ -108,6 +111,7 @@ void gui_manager_back(void)
     if (s_pages[s_current] && s_pages[s_current]->on_enter) {
         s_pages[s_current]->on_enter();
     }
+    app_event_post(APP_EVT_PAGE_ENTER, (uint32_t)s_current, NULL);
 }
 
 void gui_manager_update(void)

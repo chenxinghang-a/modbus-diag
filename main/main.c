@@ -83,6 +83,38 @@ void app_event_process(void)
     }
 }
 
+/* ========== Event logger ========== */
+/* 事件总线的实际消费者：把低频关键事件写进 oplog，方便现场回溯。
+ * 只订阅低频事件（扫描结束、WiFi 状态）——像 MODBUS_TIMEOUT 这种每秒几十次的
+ * 绝不能进日志，会把 8KB 的日志瞬间冲掉、还会阻塞事件队列。 */
+static void app_event_logger(const app_event_t *evt)
+{
+    switch (evt->id) {
+        case APP_EVT_SCAN_DONE:
+            log_storage_logf("event: scan done, %lu device(s)", (unsigned long)evt->arg);
+            break;
+        case APP_EVT_WIFI_CONNECTED:
+            log_storage_logf("event: wifi connected");
+            break;
+        case APP_EVT_WIFI_DISCONNECTED:
+            log_storage_logf("event: wifi disconnected");
+            break;
+        case APP_EVT_WIFI_STA_GOT_IP:
+            log_storage_logf("event: wifi got ip");
+            break;
+        case APP_EVT_PAGE_ENTER:
+        case APP_EVT_PAGE_EXIT:
+            /* 页面切换只进串口调试日志（ESP_LOGD），不进 oplog ——
+             * 翻页太频繁，写文件既吵又费 SPIFFS */
+            ESP_LOGD(TAG, "page %s: %lu",
+                     evt->id == APP_EVT_PAGE_ENTER ? "enter" : "exit",
+                     (unsigned long)evt->arg);
+            break;
+        default:
+            break;
+    }
+}
+
 /* ========== NVS Init ========== */
 static esp_err_t nvs_init(void)
 {
@@ -173,6 +205,14 @@ void app_main(void)
      * 但全工程没有一处调用 —— 文件永远是空的。这里至少把开机记上。 */
     log_storage_init();
     log_storage_logf("boot: Modbus Diag v1.0.0");
+
+    /* 事件总线的消费者（此前只有按键事件有人注册，其余全是「有定义没流量」） */
+    app_event_register(APP_EVT_SCAN_DONE, app_event_logger);
+    app_event_register(APP_EVT_WIFI_CONNECTED, app_event_logger);
+    app_event_register(APP_EVT_WIFI_DISCONNECTED, app_event_logger);
+    app_event_register(APP_EVT_WIFI_STA_GOT_IP, app_event_logger);
+    app_event_register(APP_EVT_PAGE_ENTER, app_event_logger);
+    app_event_register(APP_EVT_PAGE_EXIT, app_event_logger);
 
     /* Init TFT */
     ESP_ERROR_CHECK(tft_driver_init());
