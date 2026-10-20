@@ -1,0 +1,197 @@
+/* 协议层主机侧单元测试（不参与固件构建，用 gcc 直接跑）
+ *
+ * 目的：报文解析（frame_parser）和 RTU 帧构建/校验（modbus_rtu）都是纯 C、
+ * 不依赖 ESP-IDF，可以在 PC 上直接跑回归 —— 不用板子也能证明协议层没坏。
+ *
+ * 跑法：
+ *   bash host_tests/run.sh
+ */
+#include <stdio.h>
+#include <string.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+#include "modbus_rtu.h"
+#include "frame_parser.h"
+
+static int ok = 0, bad = 0;
+
+static void check(const char *label, bool cond, const char *detail)
+{
+    if (cond) {
+        ok++;
+        printf("  [ OK ] %s%s%s\n", label, detail ? "  " : "", detail ? detail : "");
+    } else {
+        bad++;
+        printf("  [FAIL] %s%s%s\n", label, detail ? "  " : "", detail ? detail : "");
+    }
+}
+
+/* 参考实现：CRC16/Modbus（多项式 0xA001，初值 0xFFFF）。
+ * 故意写成逐位算法，与固件里的查表法互为验证 —— 表写错了这里立刻露馅。 */
+static uint16_t ref_crc16(const uint8_t *data, uint16_t len)
+{
+    uint16_t crc = 0xFFFF;
+    for (uint16_t i = 0; i < len; i++) {
+        crc ^= data[i];
+        for (int b = 0; b < 8; b++) {
+            if (crc & 1) crc = (uint16_t)((crc >> 1) ^ 0xA001);
+            else         crc = (uint16_t)(crc >> 1);
+        }
+    }
+    return crc;
+}
+
+static uint16_t append_crc(uint8_t *buf, uint16_t len)
+{
+    uint16_t c = ref_crc16(buf, len);
+    buf[len++] = (uint8_t)(c & 0xFF);        /* 低字节先发 */
+    buf[len++] = (uint8_t)(c >> 8);
+    return len;
+}
+
+int main(void)
+{
+    /* ---------- 1. CRC 实现 vs 参考实现 ---------- */
+    printf("-- CRC16 --\n");
+    {
+        /* 经典向量：01 03 00 00 00 0A 的 CRC 寄存器值 = 0xCDC5，
+         * 线上低字节先发，所以帧尾两字节是 C5 CD。 */
+        const uint8_t vec[] = {0x01, 0x03, 0x00, 0x00, 0x00, 0x0A};
+        uint16_t c = modbus_crc16(vec, sizeof(vec));
+        char d[64];
+        snprintf(d, sizeof(d), "crc=0x%04X (wire: %02X %02X)", c, c & 0xFF, c >> 8);
+        check("经典向量 01 03 00 00 00 0A", c == 0xCDC5, d);
+        check("查表法与逐位法一致", c == ref_crc16(vec, sizeof(vec)), NULL);
+    }
+    {
+        /* 伪随机 + 各种长度：只看两种实现是否一致 */
+        uint32_t seed = 12345;
+        int mismatch = 0;
+        for (int n = 1; n <= 64; n++) {
+            uint8_t buf[64];
+            for (int i = 0; i < n; i++) {
+                seed = seed * 1103515245u + 12345u;
+                buf[i] = (uint8_t)(seed >> 16);
+            }
+            if (modbus_crc16(buf, (uint16_t)n) != ref_crc16(buf, (uint16_t)n)) mismatch++;
+        }
+        char d[48];
+        snprintf(d, sizeof(d), "1~64 字节共 64 组，不一致 %d 组", mismatch);
+        check("随机数据 查表法 == 逐位法", mismatch == 0, d);
+    }
+
+    /* ---------- 2. 构建请求帧 ---------- */
+    printf("-- 构建请求帧 --\n");
+    {
+        modbus_request_t req = {
+            .slave_addr = 1,
+            .function_code = MODBUS_FC_READ_HOLD_REGS,
+            .start_addr = 0,
+            .quantity = 10,
+        };
+        uint8_t buf[16];
+        int n = modbus_rtu_build_request(&req, buf, sizeof(buf));
+        char d[64];
+        snprintf(d, sizeof(d), "len=%d", n);
+        check("FC03 请求帧长度 = 8", n == 8, d);
+        const uint8_t want[] = {0x01, 0x03, 0x00, 0x00, 0x00, 0x0A};
+        check("前 6 字节与规范一致", memcmp(buf, want, 6) == 0, NULL);
+        check("帧尾 CRC 正确", modbus_rtu_check_crc(buf, (uint16_t)n), NULL);
+    }
+    {
+        modbus_request_t req = {
+            .slave_addr = 0,               /* 广播地址 */
+            .function_code = MODBUS_FC_WRITE_SINGLE_REG,
+            .start_addr = 0x1234,
+            .write_value = 0x5678,
+        };
+        uint8_t buf[16];
+        int n = modbus_rtu_build_request(&req, buf, sizeof(buf));
+        check("广播帧（addr=0）也能构建", n == 8 && buf[0] == 0x00, NULL);
+        check("广播帧 CRC 正确", modbus_rtu_check_crc(buf, (uint16_t)n), NULL);
+    }
+    {
+        uint8_t tiny[2];
+        modbus_request_t req = { .slave_addr = 1, .function_code = MODBUS_FC_READ_HOLD_REGS };
+        check("缓冲区不够时返回负值",
+              modbus_rtu_build_request(&req, tiny, sizeof(tiny)) < 0, NULL);
+    }
+
+    /* ---------- 3. 解析响应帧 ---------- */
+    printf("-- 解析响应帧 --\n");
+    {
+        /* FC03 响应：01 03 04 00 01 00 02 + CRC（总长 9 = 5 + 字节数 4） */
+        uint8_t f[16] = {0x01, 0x03, 0x04, 0x00, 0x01, 0x00, 0x02};
+        uint16_t n = append_crc(f, 7);
+        parsed_frame_t p;
+        check("解析成功", frame_parser_parse(f, n, &p), NULL);
+        check("从站地址 = 1", p.slave_addr == 1, NULL);
+        check("功能码 = 0x03", p.function_code == 0x03, NULL);
+        check("CRC 有效", p.crc_valid, NULL);
+        check("不是异常帧", !p.is_exception, NULL);
+        check("按帧长识别为响应帧", p.is_response, NULL);
+        check("响应帧给出字节数（=4）而不是假的 addr/qty", p.quantity_or_value == 4, NULL);
+
+        char buf[64];
+        frame_parser_to_string(&p, buf, sizeof(buf));
+        check("字符串显示为 resp N bytes", strstr(buf, "resp 4 bytes") != NULL, buf);
+    }
+    {
+        /* FC03 请求：01 03 00 00 00 0A + CRC（总长 8） */
+        uint8_t f[16] = {0x01, 0x03, 0x00, 0x00, 0x00, 0x0A};
+        uint16_t n = append_crc(f, 6);
+        parsed_frame_t p;
+        frame_parser_parse(f, n, &p);
+        check("请求帧不被误判成响应", !p.is_response, NULL);
+        check("请求帧 addr = 0", p.start_addr == 0, NULL);
+        check("请求帧 qty = 10", p.quantity_or_value == 10, NULL);
+    }
+    {
+        /* 异常帧：01 83 02 + CRC（FC 最高位置 1） */
+        uint8_t f[8] = {0x01, 0x83, 0x02};
+        uint16_t n = append_crc(f, 3);
+        parsed_frame_t p;
+        check("异常帧解析成功", frame_parser_parse(f, n, &p), NULL);
+        check("识别为异常帧", p.is_exception, NULL);
+        check("异常码 = 2（非法数据地址）", p.exception_code == 2, NULL);
+
+        char buf[64];
+        frame_parser_to_string(&p, buf, sizeof(buf));
+        check("转字符串含 EXC 字样", strstr(buf, "EXC") != NULL, buf);
+        check("异常帧仍能看出是哪个功能码（不是 Unknown）",
+              strstr(buf, "RdHoldReg") != NULL, NULL);
+        check("转字符串含 Illegal Addr", strstr(buf, "Illegal Addr") != NULL, NULL);
+    }
+    {
+        /* CRC 被改坏 */
+        uint8_t f[16] = {0x01, 0x03, 0x04, 0x00, 0x01, 0x00, 0x02};
+        uint16_t n = append_crc(f, 7);
+        f[n - 1] ^= 0xFF;
+        parsed_frame_t p;
+        frame_parser_parse(f, n, &p);
+        check("CRC 损坏能识别", !p.crc_valid, NULL);
+    }
+    {
+        /* 边界：小于 4 字节直接拒绝 */
+        uint8_t f[3] = {0x01, 0x03, 0x02};
+        parsed_frame_t p;
+        check("3 字节帧被拒绝", !frame_parser_parse(f, 3, &p), NULL);
+        check("空指针被拒绝", !frame_parser_parse(NULL, 8, &p), NULL);
+    }
+
+    /* ---------- 4. T3.5 静默时间 ---------- */
+    printf("-- T3.5 --\n");
+    {
+        char d[48];
+        uint32_t t9600 = modbus_rtu_t35_us(9600);
+        uint32_t t115200 = modbus_rtu_t35_us(115200);
+        snprintf(d, sizeof(d), "9600=%luus 115200=%luus",
+                 (unsigned long)t9600, (unsigned long)t115200);
+        check("波特率越高静默时间越短", t9600 > t115200, d);
+        check("115200 下至少 1750us（规范下限）", t115200 >= 1750, NULL);
+    }
+
+    printf("\n合计: OK %d / FAIL %d\n", ok, bad);
+    return bad ? 1 : 0;
+}

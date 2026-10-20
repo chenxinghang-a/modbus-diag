@@ -8,9 +8,10 @@
 typedef struct {
     uint8_t  slave_addr;
     uint8_t  function_code;
-    uint16_t start_addr;
-    uint16_t quantity_or_value;
+    uint16_t start_addr;          /* 仅请求帧有意义 */
+    uint16_t quantity_or_value;   /* 请求=数量/写入值；响应=字节数 */
     bool     is_exception;
+    bool     is_response;         /* 帧长启发式判定；FC05/06 的请求响应同形，无法区分 */
     uint8_t  exception_code;
     bool     crc_valid;
     const char *fc_name;

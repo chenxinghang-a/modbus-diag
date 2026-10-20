@@ -12,3 +12,6 @@ __pycache__/
 
 # Python 虚拟环境（本项目跑 sim 用）
 .venv/
+
+# 主机侧协议测试的编译产物
+host_tests/.build/
