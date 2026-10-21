@@ -96,6 +96,26 @@ typedef struct {
 } modbus_config_t;
 
 /* ========== Utility ========== */
+
+/* 错误码 → 短名称。
+ * 界面原来只显示 "Read failed (err=3)"，现场没人知道 3 是什么；
+ * 这里给一句话，屏幕 320px 下能直接显示。新增枚举值务必同步加名字，
+ * host_tests 里有一条用例专门遍历全部取值，漏了会红。 */
+static inline const char *modbus_err_name(modbus_err_t err)
+{
+    switch (err) {
+        case MODBUS_OK:                   return "OK";
+        case MODBUS_ERR_TIMEOUT:          return "Timeout (no reply)";
+        case MODBUS_ERR_CRC:              return "CRC error";
+        case MODBUS_ERR_EXCEPTION:        return "Slave exception";
+        case MODBUS_ERR_INVALID_RESPONSE: return "Bad response";
+        case MODBUS_ERR_BUFFER_TOO_SMALL: return "Buffer too small";
+        case MODBUS_ERR_IO:               return "I/O error";
+        case MODBUS_ERR_INVALID_PARAM:    return "Bad parameter";
+        default:                          return "Unknown";
+    }
+}
+
 static inline bool modbus_is_exception(uint8_t fc)
 {
     return (fc & 0x80) != 0;

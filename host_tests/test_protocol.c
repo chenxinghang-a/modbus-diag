@@ -265,6 +265,27 @@ int main(void)
               frame_parser_to_hex(f, 3, okbuf, sizeof(okbuf), 0) > 0, okbuf);
     }
 
+    /* ---------- 错误码名称完整性（枚举加了新值却忘加名字，这里会红） ---------- */
+    printf("-- 错误码名称 --\n");
+    {
+        const modbus_err_t all[] = {
+            MODBUS_OK, MODBUS_ERR_TIMEOUT, MODBUS_ERR_CRC, MODBUS_ERR_EXCEPTION,
+            MODBUS_ERR_INVALID_RESPONSE, MODBUS_ERR_BUFFER_TOO_SMALL,
+            MODBUS_ERR_IO, MODBUS_ERR_INVALID_PARAM,
+        };
+        bool all_named = true;
+        for (size_t i = 0; i < sizeof(all) / sizeof(all[0]); i++) {
+            const char *n = modbus_err_name(all[i]);
+            if (!n || strcmp(n, "Unknown") == 0) all_named = false;
+        }
+        check("8 个错误码都有可读名称", all_named, NULL);
+        check("超时名可直接显示给用户",
+              strstr(modbus_err_name(MODBUS_ERR_TIMEOUT), "Timeout") != NULL,
+              modbus_err_name(MODBUS_ERR_TIMEOUT));
+        check("未定义取值返回 Unknown 而不是崩",
+              strcmp(modbus_err_name((modbus_err_t)99), "Unknown") == 0, NULL);
+    }
+
     printf("\n合计: OK %d / FAIL %d\n", ok, bad);
     return bad ? 1 : 0;
 }

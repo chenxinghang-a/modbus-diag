@@ -233,7 +233,7 @@ static void dev_commit_write(int gi, uint16_t addr)
                              (unsigned)rb[0], (unsigned)rb[1],
                              (unsigned)rb[2], (unsigned)rb[3]);
         } else {
-            snprintf(s_msg, sizeof(s_msg), "FC16 failed (err=%d)", (int)berr);
+            snprintf(s_msg, sizeof(s_msg), "FC16 failed: %s", modbus_err_name(berr));
             s_msg_err = true;
             log_storage_logf("FC16 FAILED: addr=%d @%u x4 <- %u err=%d",
                              s_dev.slave_addr, (unsigned)base,
@@ -272,7 +272,7 @@ static void dev_commit_write(int gi, uint16_t addr)
                          s_dev.slave_addr, (unsigned)addr, (unsigned)s_edit_val,
                          type == REG_TYPE_COIL ? "coil" : "hr", (unsigned)rb);
     } else {
-        snprintf(s_msg, sizeof(s_msg), "Write failed (err=%d)", (int)err);
+        snprintf(s_msg, sizeof(s_msg), "Write failed: %s", modbus_err_name(err));
         s_msg_err = true;
         log_storage_logf("write FAILED: addr=%d @%u val=%u err=%d",
                          s_dev.slave_addr, (unsigned)addr,

@@ -128,11 +128,11 @@ static void tcp_key(uint8_t key)
                              (long)resp.response_time_us);
                     s_msg_err = false;
                 } else {
-                    snprintf(s_msg, sizeof(s_msg), "Read failed (err=%d)", (int)err);
+                    snprintf(s_msg, sizeof(s_msg), "Read failed: %s", modbus_err_name(err));
                     s_msg_err = true;
                     s_connected = modbus_tcp_is_connected();
                 }
-                log_storage_logf("tcp read test -> err=%d", (int)err);
+                log_storage_logf("tcp read test -> %s", modbus_err_name(err));
             }
             s_need_redraw = true;
             break;
