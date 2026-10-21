@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esp_err.h"
+#include <stddef.h>     /* size_t */
 #include <stdint.h>
 #include <stdbool.h>
 

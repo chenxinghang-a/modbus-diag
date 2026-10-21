@@ -42,6 +42,36 @@ echo "=== 诊断报告生成（JSON / HTML / 诊断建议） ==="
 "$OUT_DIR/test_report" || fail=1
 
 echo
+echo "=== 头文件自包含检查 ==="
+# 每个头文件单独编译一次：只 include 它，不先包含 stdio/string。
+# 这一项是 CI 上真炸过才加的：report_generator.h 用了 size_t 却没包含 stddef.h，
+# 本地因为测试文件先 include 了 stdio.h 而侥幸编过，CI 的 glibc 直接报 unknown type name。
+# 注意：MinGW 的 stdint.h 会顺带带出 size_t，本地可能复现不出来 —— 真正的把关在 CI。
+INCS="-I . -I host_tests/stubs"
+for d in components/*/; do INCS="$INCS -I $d"; done
+for h in components/modbus_core/modbus_common.h \
+         components/modbus_core/modbus_rtu.h \
+         components/modbus_core/modbus_tcp.h \
+         components/modbus_core/modbus_master.h \
+         components/protocol_analyzer/frame_parser.h \
+         components/waveform/signal_process.h \
+         components/diag_report/health_metrics.h \
+         components/diag_report/report_generator.h \
+         components/storage/file_export.h \
+         components/storage/log_storage.h \
+         components/storage/nvs_config.h \
+         components/modbus_scanner/scan_result.h \
+         components/modbus_scanner/device_scanner.h \
+         components/modbus_scanner/register_classifier.h ; do
+    if ! echo "#include \"$h\"" | "$CC" $CFLAGS $INCS -fsyntax-only -x c - 2>"$OUT_DIR/hdr.err"; then
+        echo "  [FAIL] $h 不能单独编译："
+        sed 's/^/         /' "$OUT_DIR/hdr.err" | head -5
+        fail=1
+    fi
+done
+[ "$fail" -eq 0 ] && echo "  [ OK ] 14 个头文件均可自包含"
+
+echo
 if [ "$fail" -ne 0 ]; then
     echo "!!! 有用例失败"
     exit 1

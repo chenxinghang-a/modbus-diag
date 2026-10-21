@@ -4,7 +4,6 @@
 #include "esp_log.h"
 #include <string.h>
 
-static const char *TAG = "nvs_cfg";
 static const char *NAMESPACE = "config";
 
 esp_err_t nvs_config_init(void)

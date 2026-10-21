@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stddef.h>     /* size_t —— 别依赖调用方先包含 stdio.h（CI 上就是这么炸的） */
+
 #include "health_metrics.h"
 #include "esp_err.h"
 

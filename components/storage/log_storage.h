@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stddef.h>     /* size_t */
+
 #include "esp_err.h"
 
 esp_err_t log_storage_init(void);
