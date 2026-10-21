@@ -76,9 +76,12 @@ bash host_tests/run.sh
 
 # 2) 从站模拟器自检：TCP/RTU 帧、故障注入、广播、异常码，45 项断言
 cd sim && python test_sim.py
+
+# 3) 端到端互通：用固件自己的帧层和模拟器对话（读/写/异常/超时，11 项）
+bash host_tests/run_e2e.sh
 ```
 
-两层测试都在 GitHub Actions 里自动执行（`.github/workflows/host-tests.yml`），每次 push 都会跑。
+三层测试都在 GitHub Actions 里自动执行（`.github/workflows/host-tests.yml`），每次 push 都会跑。
 固件构建需要完整 ESP-IDF 环境（下载数百 MB、耗时数分钟），不放进 CI。
 
 主机测试覆盖的是「编译通过也发现不了」的错误：响应帧错位、`len=0` 除零、
