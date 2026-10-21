@@ -1,0 +1,60 @@
+name: ci
+
+# 两个 job：
+#   host-tests  纯 C 单元测试 + 模拟器自检，几十秒，不需要 ESP-IDF
+#   firmware    在 ESP-IDF 官方镜像里从**干净克隆**完整构建一次
+#
+# firmware 这个 job 的意义：本地 build/ 有缓存，改完编译通过并不能证明
+# 「别人 clone 下来能构建」。CI 每次都是全新容器 + 全新 checkout，
+# 能抓到「文件没提交」「本机依赖没声明」「Windows 专有写法」这类问题。
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 编译器版本
+        run: gcc --version | head -1
+
+      - name: 协议层 / 信号处理 / 报告生成（71 项断言 + 头文件自包含）
+        run: bash host_tests/run.sh
+
+      - name: 模拟器自检（45 项断言）
+        working-directory: sim
+        run: |
+          python3 -m pip install --quiet -r requirements.txt
+          python3 test_sim.py
+
+  firmware:
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:v5.4
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 工具链信息
+        run: |
+          idf.py --version
+          xtensa-esp32s3-elf-gcc --version | head -1
+
+      - name: 构建（sdkconfig 已入库，无需 set-target）
+        run: idf.py build
+
+      - name: 产物信息
+        run: |
+          ls -l build/modbus-diag.bin
+          python - <<'PY'
+          import os, re
+          size = os.path.getsize("build/modbus-diag.bin")
+          print(f"bin = {size} bytes (0x{size:x})")
+          # 应用分区 0x1E0000 = 1966080
+          free = 1966080 - size
+          print(f"分区余量 {free} bytes ({free/1966080*100:.0f}% free)")
+          assert size < 1966080, "固件超过应用分区大小"
+          PY
