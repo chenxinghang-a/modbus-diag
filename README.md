@@ -103,6 +103,16 @@ python -m venv .venv
 波形测量精度 —— 需要实物板。首次上板请按 **[`docs/上板验证清单.md`](docs/上板验证清单.md)**
 逐项走一遍：每项都写了预期结果和「不符时先查什么」，最后一节是最容易出问题的五个点。
 
+## 硬件设计包
+
+`hardware/` 提供可核对的设计数据（[详见 hardware/README.md](hardware/README.md)）：
+
+- `netlist.json` —— 单一数据源：41 个元件的网表
+- `BOM.csv` —— 由网表生成，每个元件带 MPN 与封装
+- `tools/check_hardware.py` —— **固件引脚 ↔ 硬件网表**一致性自检（32 项，已接入 CI）
+
+引脚改动若忘了同步硬件，CI 会直接报错。PCB 布局布线尚未进行（KiCad 工程为骨架）。
+
 ## 已知限制
 
 - **硬件未完成**：`hardware/` 只有 KiCad 工程骨架，PCB 未打样、未焊接；第 7 章按「设计 + 模块级验证」口径撰写。

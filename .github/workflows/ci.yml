@@ -31,6 +31,9 @@ jobs:
           python3 -m pip install --quiet -r requirements.txt
           python3 test_sim.py
 
+      - name: 硬件网表自检（固件引脚 ↔ 网表 32 项）
+        run: python3 hardware/tools/check_hardware.py
+
   firmware:
     runs-on: ubuntu-latest
     container:
