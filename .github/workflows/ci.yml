@@ -38,19 +38,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 容器里 idf.py 不在非交互 shell 的 PATH 上（实测报 "idf.py: not found"），
+      # 每个 step 都要先 source 一次 export.sh。
       - name: 工具链信息
         run: |
+          . "$IDF_PATH/export.sh" > /dev/null
           idf.py --version
           xtensa-esp32s3-elf-gcc --version | head -1
 
       - name: 构建（sdkconfig 已入库，无需 set-target）
-        run: idf.py build
+        run: |
+          . "$IDF_PATH/export.sh" > /dev/null
+          idf.py build
 
       - name: 产物信息
         run: |
+          . "$IDF_PATH/export.sh" > /dev/null
           ls -l build/modbus-diag.bin
           python - <<'PY'
-          import os, re
+          import os
           size = os.path.getsize("build/modbus-diag.bin")
           print(f"bin = {size} bytes (0x{size:x})")
           # 应用分区 0x1E0000 = 1966080
