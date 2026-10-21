@@ -14,6 +14,7 @@
 
 static bool s_need_redraw = true;
 static bool s_scanning = false;
+static bool s_quick_scan = false;   /* true = 只扫当前波特率（现场已知波特率时用） */
 static scan_result_t s_result;
 static int s_progress = 0;
 static int s_progress_total = 0;
@@ -41,13 +42,20 @@ static void do_scan(void)
 
     TickType_t t0 = xTaskGetTickCount();
 
+    /* 快速扫描只喂当前波特率：现场知道波特率时，不必把 5 档各跑一遍（耗时 1/5） */
+    modbus_config_t cur_cfg;
+    modbus_master_get_config(&cur_cfg);
+    uint32_t quick_baud = cur_cfg.baud_rate;
+    /* 单地址超时取设置页配的值（原来这里写死 50ms，设置页那项是死的） */
+    uint32_t scan_timeout = cur_cfg.timeout_ms ? cur_cfg.timeout_ms : 50;
+
     scan_config_t cfg = {
-        .baud_rates = NULL,  /* use defaults */
-        .baud_count = 0,
+        .baud_rates = s_quick_scan ? &quick_baud : NULL,
+        .baud_count = s_quick_scan ? 1 : 0,
         .addr_start = 1,
         .addr_end = 247,
-        .timeout_ms = 50,
-        .retry_count = 1,
+        .timeout_ms = scan_timeout,
+        .retry_count = 0,   /* 扫描不重试：247 个地址各重试一次，耗时直接翻倍 */
         .on_progress = scan_progress_cb,
         .on_device_found = scan_done_cb,
     };
@@ -117,10 +125,21 @@ static void rtu_update(void)
     } else {
         tft_draw_string(20, 40, "No devices found", THEME_FG, THEME_BG, FONT_NORMAL);
         tft_draw_string(20, 70, "[OK] Start Scan", THEME_HIGHLIGHT, THEME_BG, FONT_NORMAL);
+
+        /* 扫描模式：全档（5 档波特率各遍历一遍，慢但不会漏）或快速（只扫当前波特率） */
+        char buf[40];
+        modbus_config_t cur;
+        modbus_master_get_config(&cur);
+        if (s_quick_scan) {
+            snprintf(buf, sizeof(buf), "Mode: QUICK @%lu bps", (unsigned long)cur.baud_rate);
+            tft_draw_string(20, 92, buf, THEME_WARNING, THEME_BG, FONT_SMALL);
+        } else {
+            tft_draw_string(20, 92, "Mode: ALL baud (5 steps)", THEME_FG, THEME_BG, FONT_SMALL);
+        }
     }
 
     tft_draw_string(20, TFT_HEIGHT - 18,
-                    "[OK] Scan  [BACK] Return",
+                    "[OK] Scan  [OK hold] Mode  [BACK] Return",
                     THEME_FG, THEME_BG, FONT_SMALL);
 }
 
@@ -152,6 +171,10 @@ static void rtu_key(uint8_t key)
             } else {
                 do_scan();
             }
+            break;
+        case 4: /* 长按 OK：切换 全档/快速 扫描 */
+            s_quick_scan = !s_quick_scan;
+            s_need_redraw = true;
             break;
         case 3: /* BACK */
             gui_manager_back();

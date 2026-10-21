@@ -23,6 +23,12 @@ static int s_baud_idx = 0;
 static const uint32_t s_baud_rates[] = {1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200};
 static const int s_baud_count = sizeof(s_baud_rates) / sizeof(s_baud_rates[0]);
 
+/* 超时也是可配的：扫描器用它当单地址超时，直接决定扫描耗时（现场调试要能调）。
+ * 原来这一项在菜单里摆着、按 OK 什么都不发生。 */
+static const uint32_t s_timeouts[] = {50, 100, 200, 500, 1000};
+static const int s_timeout_count = sizeof(s_timeouts) / sizeof(s_timeouts[0]);
+static int s_timeout_idx = 0;
+
 static void settings_enter(void)
 {
     s_need_redraw = true;
@@ -35,6 +41,13 @@ static void settings_enter(void)
     nvs_config_get_u32("baud", &baud, 9600);
     for (int i = 0; i < s_baud_count; i++) {
         if (s_baud_rates[i] == baud) { s_baud_idx = i; break; }
+    }
+
+    /* Load saved timeout */
+    uint32_t tmo = 50;
+    nvs_config_get_u32("timeout_ms", &tmo, 50);
+    for (int i = 0; i < s_timeout_count; i++) {
+        if (s_timeouts[i] == tmo) { s_timeout_idx = i; break; }
     }
 }
 
@@ -55,6 +68,11 @@ static void settings_update(void)
     char buf[32];
     snprintf(buf, sizeof(buf), "%lu", (unsigned long)s_baud_rates[s_baud_idx]);
     ui_list_item_draw(20, 30, TFT_WIDTH - 40, "Baud Rate", buf, s_selected == 0);
+
+    /* 第二项：超时（原来只有标签没有值，按 OK 也不响应） */
+    snprintf(buf, sizeof(buf), "%lu ms", (unsigned long)s_timeouts[s_timeout_idx]);
+    ui_list_item_draw(20, 30 + MENU_ITEM_H, TFT_WIDTH - 40, "Timeout (ms)", buf,
+                      s_selected == 1);
 
     tft_draw_string(20, TFT_HEIGHT - 18,
                     "[UP/DN] Navigate  [OK] Change  [BACK] Exit",
@@ -92,6 +110,17 @@ static void settings_key(uint8_t key)
                 modbus_master_configure(&cfg);
                 log_storage_logf("config: baud=%lu (saved to NVS)",
                                  (unsigned long)cfg.baud_rate);
+            } else if (s_selected == 1) {
+                /* Cycle timeout：扫描的单地址超时直接用它 */
+                s_timeout_idx = (s_timeout_idx + 1) % s_timeout_count;
+                nvs_config_set_u32("timeout_ms", s_timeouts[s_timeout_idx]);
+
+                modbus_config_t cfg;
+                modbus_master_get_config(&cfg);
+                cfg.timeout_ms = s_timeouts[s_timeout_idx];
+                modbus_master_configure(&cfg);
+                log_storage_logf("config: timeout=%lu ms (saved to NVS)",
+                                 (unsigned long)cfg.timeout_ms);
             }
             s_need_redraw = true;
             break;

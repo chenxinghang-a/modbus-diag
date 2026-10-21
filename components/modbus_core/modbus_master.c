@@ -123,33 +123,16 @@ void modbus_master_set_uart_mode(app_uart_mode_t mode)
     s_uart_mode = mode;
 }
 
-modbus_err_t modbus_master_send_recv(const modbus_request_t *req, modbus_response_t *resp)
+/* 一次 UART 事务（建帧→发送→等响应→解析）。不含重试与 UART 模式管理，
+ * 由 modbus_master_send_recv() 在外层做。 */
+static modbus_err_t uart_transaction(const modbus_request_t *req, modbus_response_t *resp)
 {
-    if (!req || !resp) return MODBUS_ERR_INVALID_PARAM;
-
-    /* TCP 已连接时优先走网络：这样设备扫描、寄存器分类、读写全都自动支持 TCP，
-     * 而不是只有 TCP 页那一次「测试读」能用。两条路径的请求/响应结构体是同一套，
-     * 所以这里只是换传输层，上层代码一行都不用改。 */
-    if (modbus_tcp_is_connected()) {
-        modbus_err_t err = modbus_tcp_send_recv(req, resp);
-        if (resp->response_time_us > 0) s_last_response_time_us = resp->response_time_us;
-        return err;
-    }
-
-    /* Check if UART is available */
-    if (s_uart_mode == APP_UART_MODE_CAPTURE) {
-        ESP_LOGW(TAG, "UART busy (capture mode)");
-        return MODBUS_ERR_IO;
-    }
-    s_uart_mode = APP_UART_MODE_MODBUS;
-
     uint8_t tx_buf[256];
     uint8_t rx_buf[256];
 
     int tx_len = modbus_rtu_build_request(req, tx_buf, sizeof(tx_buf));
     if (tx_len < 0) {
         ESP_LOGE(TAG, "Build request failed");
-        s_uart_mode = APP_UART_MODE_IDLE;
         return MODBUS_ERR_INVALID_PARAM;
     }
 
@@ -164,7 +147,6 @@ modbus_err_t modbus_master_send_recv(const modbus_request_t *req, modbus_respons
     int written = uart_write_bytes(RS485_UART_NUM, tx_buf, tx_len);
     if (written != tx_len) {
         rs485_rx_enable();
-        s_uart_mode = APP_UART_MODE_IDLE;
         return MODBUS_ERR_IO;
     }
 
@@ -190,14 +172,51 @@ modbus_err_t modbus_master_send_recv(const modbus_request_t *req, modbus_respons
 
     if (rx_len <= 0) {
         ESP_LOGD(TAG, "Timeout (addr=%d fc=0x%02X)", req->slave_addr, req->function_code);
-        s_uart_mode = APP_UART_MODE_IDLE;
         return MODBUS_ERR_TIMEOUT;
     }
 
-    /* Parse response */
-    modbus_err_t result = modbus_rtu_parse_response(rx_buf, rx_len, resp);
+    return modbus_rtu_parse_response(rx_buf, rx_len, resp);
+}
+
+modbus_err_t modbus_master_send_recv(const modbus_request_t *req, modbus_response_t *resp)
+{
+    if (!req || !resp) return MODBUS_ERR_INVALID_PARAM;
+
+    /* TCP 已连接时优先走网络：这样设备扫描、寄存器分类、读写全都自动支持 TCP，
+     * 而不是只有 TCP 页那一次「测试读」能用。两条路径的请求/响应结构体是同一套，
+     * 所以这里只是换传输层，上层代码一行都不用改。 */
+    if (modbus_tcp_is_connected()) {
+        modbus_err_t err = modbus_tcp_send_recv(req, resp);
+        if (resp->response_time_us > 0) s_last_response_time_us = resp->response_time_us;
+        return err;
+    }
+
+    /* Check if UART is available */
+    if (s_uart_mode == APP_UART_MODE_CAPTURE) {
+        ESP_LOGW(TAG, "UART busy (capture mode)");
+        return MODBUS_ERR_IO;
+    }
+    s_uart_mode = APP_UART_MODE_MODBUS;
+
+    /* 重试：配置里的 retry_count 以前是个死字段（只在默认值里出现，没人读），
+     * RS-485 现场干扰大，超时/CRC 错必须能重试。只重试这两类 ——
+     * 异常响应是从站正常回答，重试没有意义。 */
+    int attempts = s_cfg.retry_count + 1;
+    if (attempts < 1) attempts = 1;
+    if (attempts > 5) attempts = 5;      /* 配置写坏了别把自己卡死 */
+
+    modbus_err_t err = MODBUS_ERR_TIMEOUT;
+    for (int i = 0; i < attempts; i++) {
+        err = uart_transaction(req, resp);
+        if (err != MODBUS_ERR_TIMEOUT && err != MODBUS_ERR_CRC) break;
+        if (i + 1 < attempts) {
+            ESP_LOGD(TAG, "retry %d/%d (addr=%d, err=%d)",
+                     i + 1, attempts - 1, req->slave_addr, (int)err);
+        }
+    }
+
     s_uart_mode = APP_UART_MODE_IDLE;
-    return result;
+    return err;
 }
 
 /* ========== High-level API ========== */
