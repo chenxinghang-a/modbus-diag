@@ -341,6 +341,62 @@ modbus_err_t modbus_write_single_reg(uint8_t slave, uint16_t addr, uint16_t valu
     return modbus_master_send_recv(&req, &resp);
 }
 
+/* FC16：连续写多个保持寄存器。
+ * 帧构造在 modbus_rtu_build_request 里早就实现了（write_values），但一直没有高层封装，
+ * 所以界面上只能一个寄存器一个寄存器写 —— 论文 FR1 要求的 0x10 实际上用不上。
+ * 响应需回显「起始地址 + 数量」，这里校验一次，防止从站回了别的东西。 */
+modbus_err_t modbus_write_multiple_regs(uint8_t slave, uint16_t addr,
+                                        const uint16_t *values, uint16_t count)
+{
+    if (!values || count == 0 || count > 16) return MODBUS_ERR_INVALID_PARAM;
+
+    modbus_request_t req = {
+        .slave_addr = slave,
+        .function_code = MODBUS_FC_WRITE_MULTI_REGS,
+        .start_addr = addr,
+        .quantity = count,
+        .write_values = (uint16_t *)values,
+    };
+    modbus_response_t resp = {0};
+    modbus_err_t err = modbus_master_send_recv(&req, &resp);
+    if (err != MODBUS_OK) return err;
+
+    /* 响应 PDU：FC(1) + 起始地址(2) + 数量(2) */
+    if (resp.data_len < 4) return MODBUS_ERR_INVALID_RESPONSE;
+    uint16_t r_addr = (uint16_t)((resp.data[0] << 8) | resp.data[1]);
+    uint16_t r_qty  = (uint16_t)((resp.data[2] << 8) | resp.data[3]);
+    if (r_addr != addr || r_qty != count) {
+        ESP_LOGW(TAG, "FC16 echo mismatch: expect %u/%u, got %u/%u",
+                 (unsigned)addr, (unsigned)count, (unsigned)r_addr, (unsigned)r_qty);
+        return MODBUS_ERR_INVALID_RESPONSE;
+    }
+    return MODBUS_OK;
+}
+
+/* FC15：连续写多个线圈。coil_bytes 每字节 8 个线圈，低位在前。 */
+modbus_err_t modbus_write_multiple_coils(uint8_t slave, uint16_t addr,
+                                         const uint8_t *coil_bytes, uint16_t count)
+{
+    if (!coil_bytes || count == 0 || count > 64) return MODBUS_ERR_INVALID_PARAM;
+
+    modbus_request_t req = {
+        .slave_addr = slave,
+        .function_code = MODBUS_FC_WRITE_MULTI_COILS,
+        .start_addr = addr,
+        .quantity = count,
+        .write_coils = (uint8_t *)coil_bytes,
+    };
+    modbus_response_t resp = {0};
+    modbus_err_t err = modbus_master_send_recv(&req, &resp);
+    if (err != MODBUS_OK) return err;
+
+    if (resp.data_len < 4) return MODBUS_ERR_INVALID_RESPONSE;
+    uint16_t r_addr = (uint16_t)((resp.data[0] << 8) | resp.data[1]);
+    uint16_t r_qty  = (uint16_t)((resp.data[2] << 8) | resp.data[3]);
+    if (r_addr != addr || r_qty != count) return MODBUS_ERR_INVALID_RESPONSE;
+    return MODBUS_OK;
+}
+
 modbus_err_t modbus_write_multi_regs(uint8_t slave, uint16_t addr, uint16_t count,
                                      const uint16_t *values)
 {

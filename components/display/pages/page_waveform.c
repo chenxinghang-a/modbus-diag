@@ -62,20 +62,34 @@ static void wave_update(void)
                                   filtered, depth,
                                   TFT_COLOR_GREEN, TFT_COLOR_DARKGRAY);
 
-        /* Measurements */
+        /* Measurements —— FR5 要求「空闲电压、幅值、边沿时间」，
+         * 原来只有 Vpp/DC/触发，空闲电平与边沿时间根本没算。 */
         char buf[64];
         uint16_t vpp = signal_measure_vpp(filtered, depth);
         uint16_t dc = signal_measure_dc(filtered, depth);
+        uint16_t idle = signal_measure_idle(filtered, depth);
+        int rise_us = signal_measure_rise_time_us(filtered, depth, WAVE_SAMPLE_RATE);
+
         /* 明确标注是「ADC 端」电压：前级有 1/4 分压，总线上实际电压是它的 4 倍，
          * 不写清楚容易被当成总线电压。 */
-        snprintf(buf, sizeof(buf), "Vpp: %d (ADC %.2fV, x4=%.1fV) DC: %d",
-                 vpp, vpp * 3.3f / 4095, vpp * 3.3f * 4 / 4095, dc);
-        tft_draw_string(10, 190, buf, THEME_FG, THEME_BG, FONT_SMALL);
+        snprintf(buf, sizeof(buf), "Vpp: %d  ADC %.2fV / bus %.1fV",
+                 vpp, vpp * 3.3f / 4095, vpp * 3.3f * 4 / 4095);
+        tft_draw_string(10, 184, buf, THEME_FG, THEME_BG, FONT_SMALL);
+
+        snprintf(buf, sizeof(buf), "Idle: %d (%.2fV)  DC: %d", idle,
+                 idle * 3.3f * 4 / 4095, dc);
+        tft_draw_string(10, 196, buf, THEME_FG, THEME_BG, FONT_SMALL);
+
+        if (rise_us >= 0) {
+            snprintf(buf, sizeof(buf), "Rise(10-90%%): %d us", rise_us);
+        } else {
+            snprintf(buf, sizeof(buf), "Rise: -- (no edge)");
+        }
+        tft_draw_string(10, 208, buf, THEME_FG, THEME_BG, FONT_SMALL);
 
         int trig = signal_find_trigger(filtered, depth, 2048);
-        snprintf(buf, sizeof(buf), "Trigger: %s  TrigPt: %d",
-                 trig >= 0 ? "YES" : "NO", trig);
-        tft_draw_string(10, 204, buf, THEME_FG, THEME_BG, FONT_SMALL);
+        snprintf(buf, sizeof(buf), "Trig: %s @%d", trig >= 0 ? "YES" : "NO", trig);
+        tft_draw_string(180, 208, buf, THEME_FG, THEME_BG, FONT_SMALL);
     } else if (!s_running) {
         tft_draw_string(20, 60, "485 Signal Viewer", THEME_ACCENT, THEME_BG, FONT_LARGE);
         tft_draw_string(20, 90, "ADC on GPIO5", THEME_FG, THEME_BG, FONT_NORMAL);

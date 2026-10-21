@@ -92,6 +92,43 @@ int main(void)
         check("恰好越过阈值（>=）算触发", signal_find_trigger(edge2, 4, 500) == 1, NULL);
     }
 
+    /* ---------- 空闲电压（众数） ---------- */
+    printf("-- 空闲电压 --\n");
+    {
+        /* 空闲停在高位 3900（占多数），数据段在 0~2000 之间抖动：
+         * 均值会被数据段拉低，众数才落在真正的空闲电平上 */
+        uint16_t f[16] = {3900, 3900, 3900, 3900, 3900, 3900, 3900, 3900,
+                          3900, 3900, 2000, 500, 100, 0, 800, 1500};
+        uint16_t idle = signal_measure_idle(f, 16);
+        char d[48];
+        snprintf(d, sizeof(d), "idle=%d", idle);
+        check("众数落在空闲高位（3896±16）", idle >= 3880 && idle <= 3912, d);
+        check("明显高于均值（均值会被数据段拉低）",
+              idle > signal_measure_dc(f, 16), NULL);
+        check("空数据返回 0", signal_measure_idle(NULL, 0) == 0, NULL);
+    }
+
+    /* ---------- 上升时间 ---------- */
+    printf("-- 上升时间 --\n");
+    {
+        /* 采样率 100kSPS（1 点 = 10us）。构造 0 → 4000 的两级跳变：
+         * 10% 在 index 2、90% 在 index 7 → 5 个点 → 50us */
+        uint16_t f[12] = {0, 0, 400, 1200, 2400, 3200, 3600, 3800, 4000, 4000, 4000, 4000};
+        int t = signal_measure_rise_time_us(f, 12, 100000);
+        char d[48];
+        snprintf(d, sizeof(d), "rise=%dus", t);
+        check("10%→90% 约 50us", t >= 40 && t <= 60, d);
+    }
+    {
+        uint16_t flat[8] = {2000, 2000, 2000, 2000, 2000, 2000, 2000, 2000};
+        check("平直信号无上升沿 → -1", signal_measure_rise_time_us(flat, 8, 100000) == -1, NULL);
+        uint16_t tiny[8] = {2000, 2010, 2020, 2030, 2040, 2050, 2060, 2070};
+        check("幅度不足 100LSB → -1（测了也没意义）",
+              signal_measure_rise_time_us(tiny, 8, 100000) == -1, NULL);
+        check("采样率为 0 时返回 -1（避免除零）",
+              signal_measure_rise_time_us(flat, 8, 0) == -1, NULL);
+    }
+
     printf("\n合计: OK %d / FAIL %d\n", ok, bad);
     return bad ? 1 : 0;
 }

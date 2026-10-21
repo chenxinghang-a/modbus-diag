@@ -35,6 +35,13 @@ modbus_err_t modbus_read_input_regs(uint8_t slave, uint16_t addr, uint16_t count
 /* High-level write functions */
 modbus_err_t modbus_write_single_coil(uint8_t slave, uint16_t addr, bool value);
 modbus_err_t modbus_write_single_reg(uint8_t slave, uint16_t addr, uint16_t value);
+
+/* FC15 / FC16：连续写多个线圈 / 寄存器。
+ * count 上限分别 64 与 16（受帧长与屏幕输入方式限制）。 */
+modbus_err_t modbus_write_multiple_regs(uint8_t slave, uint16_t addr,
+                                        const uint16_t *values, uint16_t count);
+modbus_err_t modbus_write_multiple_coils(uint8_t slave, uint16_t addr,
+                                         const uint8_t *coil_bytes, uint16_t count);
 modbus_err_t modbus_write_multi_regs(uint8_t slave, uint16_t addr, uint16_t count,
                                      const uint16_t *values);
 modbus_err_t modbus_write_multi_coils(uint8_t slave, uint16_t addr, uint16_t count,

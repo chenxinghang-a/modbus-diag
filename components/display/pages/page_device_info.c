@@ -22,13 +22,25 @@ static int  s_digit = 0;           /* 编辑态：当前在改第几位（0=万�
 static uint16_t s_edit_val = 0;
 static char s_msg[48] = "";
 static bool s_msg_err = false;
+static bool s_batch = false;       /* 编辑态：true 表示「批量填充」而不是单点写 */
 
 static const uint16_t k_pow10[5] = {10000, 1000, 100, 10, 1};
 
 static const char *reg_type_str[] = {"Coil", "DiscInp", "Holding", "Input"};
 
-static int writable_count(void)
+/* 第一个可写保持寄存器组的下标（批量填充要用它的起始地址），没有则 -1 */
+static int first_holding_idx(void)
 {
+    for (int i = 0; i < s_dev.reg_group_count; i++) {
+        if (s_dev.reg_groups[i].writable &&
+            s_dev.reg_groups[i].reg_type == REG_TYPE_HOLDING) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int writable_count(void){
     int n = 0;
     for (int i = 0; i < s_dev.reg_group_count; i++) {
         if (s_dev.reg_groups[i].writable) n++;
@@ -136,12 +148,28 @@ static void dev_update(void)
         if (shown == 0) {
             tft_draw_string(10, 90, "none (all read-only)", THEME_WARNING, THEME_BG, FONT_SMALL);
         }
+
+        /* 批量填充行（FC16）：只有存在可写保持寄存器组时才出现 */
+        int hi = first_holding_idx();
+        if (hi >= 0 && y < 150) {
+            bool sel = (s_cursor == writable_count());
+            snprintf(buf, sizeof(buf), "%s[Fill 4 regs @%u]",
+                     sel ? ">" : " ", (unsigned)s_dev.reg_groups[hi].start_addr);
+            tft_draw_string(10, y, buf,
+                            sel ? THEME_HIGHLIGHT : THEME_ACCENT, THEME_BG, FONT_SMALL);
+        }
     }
 
     /* 编辑态：5 个数字框逐位高亮（用 ui_num_input_draw 单个数字位画）。
      * 原来只能 ±1 调值，写 3000 要按三千下 —— 纯属没法用。 */
     if (s_edit) {
-        snprintf(buf, sizeof(buf), "EDIT @%u", (unsigned)addr);
+        if (s_batch) {
+            int hi2 = first_holding_idx();
+            snprintf(buf, sizeof(buf), "FILL 4 regs @%u",
+                     (unsigned)(hi2 >= 0 ? s_dev.reg_groups[hi2].start_addr : 0));
+        } else {
+            snprintf(buf, sizeof(buf), "EDIT @%u", (unsigned)addr);
+        }
         tft_draw_string(10, 140, buf, THEME_HIGHLIGHT, THEME_BG, FONT_SMALL);
         for (int i = 0; i < 5; i++) {
             int d = (s_edit_val / k_pow10[i]) % 10;
@@ -180,6 +208,43 @@ static void dev_classify(void)
 static void dev_commit_write(int gi, uint16_t addr)
 {
     int type = (gi >= 0) ? s_dev.reg_groups[gi].reg_type : REG_TYPE_HOLDING;
+
+    /* ---------- 批量填充：FC16 一次写 4 个连续保持寄存器 ---------- */
+    if (s_batch) {
+        int hi = first_holding_idx();
+        uint16_t base = (hi >= 0) ? s_dev.reg_groups[hi].start_addr : addr;
+        uint16_t vals[4] = {s_edit_val, s_edit_val, s_edit_val, s_edit_val};
+
+        modbus_err_t berr = modbus_write_multiple_regs(s_dev.slave_addr, base, vals, 4);
+        if (berr == MODBUS_OK) {
+            uint16_t rb[4] = {0};
+            uint16_t cnt = 0;
+            if (modbus_read_holding_regs(s_dev.slave_addr, base, 4, rb, &cnt) == MODBUS_OK
+                && cnt == 4) {
+                snprintf(s_msg, sizeof(s_msg), "OK 4regs@%u = %u,%u,%u,%u",
+                         (unsigned)base, (unsigned)rb[0], (unsigned)rb[1],
+                         (unsigned)rb[2], (unsigned)rb[3]);
+            } else {
+                snprintf(s_msg, sizeof(s_msg), "OK 4regs@%u (readback failed)", (unsigned)base);
+            }
+            s_msg_err = false;
+            log_storage_logf("FC16: addr=%d @%u x4 <- %u, readback %u/%u/%u/%u",
+                             s_dev.slave_addr, (unsigned)base, (unsigned)s_edit_val,
+                             (unsigned)rb[0], (unsigned)rb[1],
+                             (unsigned)rb[2], (unsigned)rb[3]);
+        } else {
+            snprintf(s_msg, sizeof(s_msg), "FC16 failed (err=%d)", (int)berr);
+            s_msg_err = true;
+            log_storage_logf("FC16 FAILED: addr=%d @%u x4 <- %u err=%d",
+                             s_dev.slave_addr, (unsigned)base,
+                             (unsigned)s_edit_val, (int)berr);
+        }
+        s_batch = false;
+        s_edit = false;
+        s_need_redraw = true;
+        return;
+    }
+
     modbus_err_t err;
     if (type == REG_TYPE_HOLDING) {
         err = modbus_write_single_reg(s_dev.slave_addr, addr, s_edit_val);
@@ -247,6 +312,7 @@ static void dev_key(uint8_t key)
                 return;
             case 3:  /* BACK：取消 */
                 s_edit = false;
+                s_batch = false;
                 s_msg[0] = '\0';
                 s_need_redraw = true;
                 return;
@@ -261,16 +327,19 @@ static void dev_key(uint8_t key)
     }
 
     /* ---------- 浏览态 ---------- */
+    /* 可选行数 = 可写寄存器组 + 「批量填充」行（仅当存在保持寄存器组时） */
+    int rows = writable_count() + (first_holding_idx() >= 0 ? 1 : 0);
+
     switch (key) {
         case 0: /* UP */
-            if (writable_count() > 0) {
-                s_cursor = (s_cursor == 0) ? writable_count() - 1 : s_cursor - 1;
+            if (rows > 0) {
+                s_cursor = (s_cursor == 0) ? rows - 1 : s_cursor - 1;
                 s_need_redraw = true;
             }
             break;
         case 1: /* DOWN */
-            if (writable_count() > 0) {
-                s_cursor = (s_cursor + 1) % writable_count();
+            if (rows > 0) {
+                s_cursor = (s_cursor + 1) % rows;
                 s_need_redraw = true;
             }
             break;
@@ -278,8 +347,17 @@ static void dev_key(uint8_t key)
             if (s_dev.reg_group_count == 0) {
                 /* 还没分类：先扫寄存器 */
                 dev_classify();
+            } else if (s_cursor == writable_count() && first_holding_idx() >= 0) {
+                /* 落在「批量填充」行：FC16 一次写 4 个连续寄存器 */
+                s_batch = true;
+                s_edit_val = 0;
+                s_msg[0] = '\0';
+                s_digit = 0;
+                s_edit = true;
+                s_need_redraw = true;
             } else if (gi >= 0) {
                 /* 进编辑前先把现值读出来，别让人从 0 开始瞎猜 */
+                s_batch = false;
                 s_edit_val = 0;
                 uint16_t cnt = 0;
                 int type = s_dev.reg_groups[gi].reg_type;

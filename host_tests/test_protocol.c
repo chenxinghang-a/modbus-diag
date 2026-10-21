@@ -118,6 +118,53 @@ int main(void)
               modbus_rtu_build_request(&req, tiny, sizeof(tiny)) < 0, NULL);
     }
 
+    /* ---------- FC16 批量写帧（FR1 要求 0x10，界面「Fill 4 regs」走这条路） ---------- */
+    printf("-- FC16 批量写 --\n");
+    {
+        uint16_t vals[4] = {0x0001, 0x0002, 0x0003, 0x0004};
+        modbus_request_t req = {
+            .slave_addr = 1,
+            .function_code = MODBUS_FC_WRITE_MULTI_REGS,
+            .start_addr = 100,
+            .quantity = 4,
+            .write_values = vals,
+        };
+        uint8_t buf[32];
+        int n = modbus_rtu_build_request(&req, buf, sizeof(buf));
+        char d[64];
+        snprintf(d, sizeof(d), "len=%d", n);
+        check("帧长 = 1+1+2+2+1+8+2 = 17", n == 17, d);
+
+        const uint8_t want[] = {0x01, 0x10, 0x00, 0x64, 0x00, 0x04, 0x08,
+                                0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04};
+        check("前 15 字节：FC/地址/数量/字节数/4 个值", memcmp(buf, want, sizeof(want)) == 0, NULL);
+        check("字节数 = 数量 × 2", buf[6] == 8, NULL);
+        check("帧尾 CRC 正确", modbus_rtu_check_crc(buf, (uint16_t)n), NULL);
+    }
+    {
+        /* 没有 write_values 必须直接拒绝，而不是构造出半截帧 */
+        modbus_request_t req = {
+            .slave_addr = 1, .function_code = MODBUS_FC_WRITE_MULTI_REGS,
+            .start_addr = 0, .quantity = 2, .write_values = NULL,
+        };
+        uint8_t buf[32];
+        check("缺 write_values 时返回 -1",
+              modbus_rtu_build_request(&req, buf, sizeof(buf)) < 0, NULL);
+    }
+    {
+        /* FC15 批量写线圈：10 个线圈 → 2 字节位图 */
+        uint8_t coils[2] = {0xA5, 0x02};
+        modbus_request_t req = {
+            .slave_addr = 3, .function_code = MODBUS_FC_WRITE_MULTI_COILS,
+            .start_addr = 20, .quantity = 10, .write_coils = coils,
+        };
+        uint8_t buf[32];
+        int n = modbus_rtu_build_request(&req, buf, sizeof(buf));
+        check("FC15 帧长 = 1+1+2+2+1+2+2 = 11", n == 11, NULL);
+        check("线圈数 10 → 字节数 2", buf[6] == 2, NULL);
+        check("FC15 帧 CRC 正确", modbus_rtu_check_crc(buf, (uint16_t)n), NULL);
+    }
+
     /* ---------- 3. 解析响应帧 ---------- */
     printf("-- 解析响应帧 --\n");
     {
