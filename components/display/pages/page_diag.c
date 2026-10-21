@@ -80,10 +80,16 @@ static void diag_update(void)
     /* 没有采到任何帧时不能说「100 分 EXCELLENT」—— 那是把「没测」当成「没问题」，
      * 现场最容易误判的一种展示。这里显式显示 No Data，分数条也留空。 */
     bool has_data = (s_report.total_frames > 0);
+    bool enough   = health_has_enough_samples(&s_report);
 
-    char buf[48];
+    char buf[56];
     if (!has_data) {
         tft_draw_string(10, 28, "Score: -- (No Data)", THEME_WARNING, THEME_BG, FONT_LARGE);
+    } else if (!enough) {
+        /* 抓到 1~9 帧：样本不足以说明质量，不给分数 —— 原来会显示 100 分 */
+        snprintf(buf, sizeof(buf), "Score: -- (%lu/%d frames)",
+                 (unsigned long)s_report.total_frames, HEALTH_MIN_SAMPLES);
+        tft_draw_string(10, 28, buf, THEME_WARNING, THEME_BG, FONT_NORMAL);
     } else {
         snprintf(buf, sizeof(buf), "Score: %d/100 (%s)",
                  s_report.health_score, health_metrics_grade(s_report.health_score));
@@ -120,7 +126,7 @@ static void diag_update(void)
         if (s_report.health_score < 60) bar_color = THEME_ERROR;
         else if (s_report.health_score < 75) bar_color = THEME_WARNING;
     }
-    ui_progress_bar(10, 104, 300, 12, has_data ? s_report.health_score : 0,
+    ui_progress_bar(10, 104, 300, 12, enough ? s_report.health_score : 0,
                     bar_color, THEME_PROGRESS_BG);
 
     if (s_monitoring) {

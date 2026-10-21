@@ -10,6 +10,10 @@ typedef struct {
     float weight_stability;      /* 0.3 */
 } health_weights_t;
 
+/* 评分的最小样本量。
+ * 抓 1 帧成功就能得 100 分是个荒谬结论 —— 样本不足时不给分数（返回 -1）。 */
+#define HEALTH_MIN_SAMPLES 10
+
 typedef struct {
     int32_t  min_response_us;
     int32_t  max_response_us;
@@ -23,7 +27,7 @@ typedef struct {
     uint32_t frames_per_sec;
     uint32_t bytes_per_sec;
     uint8_t  last_exception_code; /* 最近一次异常响应的异常码，0 = 还没有过异常 */
-    int      health_score;       /* 0~100 */
+    int      health_score;       /* 0~100；-1 = 样本不足，不给分 */
 } health_report_t;
 
 void health_metrics_init(void);
@@ -36,3 +40,9 @@ void health_metrics_update(int32_t response_us, bool is_error, bool is_exception
 void health_metrics_get_report(health_report_t *out);
 int health_metrics_calculate_score(const health_report_t *report);
 const char *health_metrics_grade(int score);
+
+/* 样本是否足够评分（total_frames >= HEALTH_MIN_SAMPLES） */
+static inline bool health_has_enough_samples(const health_report_t *r)
+{
+    return r && r->total_frames >= HEALTH_MIN_SAMPLES;
+}

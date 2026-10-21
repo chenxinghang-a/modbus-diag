@@ -34,35 +34,59 @@ int main(void)
     {
         /* 三项全满：平均 2ms、错误率 0、抖动 0 → 100 分 */
         health_report_t r; memset(&r, 0, sizeof(r));
-        r.avg_response_us = 2000;
+        r.avg_response_us = 2000; r.total_frames = HEALTH_MIN_SAMPLES;
         check_int("三项满分 = 100", health_metrics_calculate_score(&r), 100);
 
         /* 平均 50ms：rt = 100 - (5000/950)*... → 100-(50000-5000)/950 = 52.63
          * 加权 0.3*52.63 + 0.4*100 + 0.3*100 = 85.79 → 85 */
         health_report_t s; memset(&s, 0, sizeof(s));
-        s.avg_response_us = 50000;
+        s.avg_response_us = 50000; s.total_frames = HEALTH_MIN_SAMPLES;
         check_int("平均 50ms（响应项约 52.6）= 85", health_metrics_calculate_score(&s), 85);
 
         /* 错误率 5% → err 项 50 分；0.3*100 + 0.4*50 + 0.3*100 = 80 */
         health_report_t e; memset(&e, 0, sizeof(e));
-        e.avg_response_us = 2000; e.error_rate = 0.05f;
+        e.avg_response_us = 2000; e.error_rate = 0.05f; e.total_frames = HEALTH_MIN_SAMPLES;
         check_int("错误率 5%（错误项 50 分）= 80", health_metrics_calculate_score(&e), 80);
 
         /* 抖动 20ms → stab = 100 - (20000-1000)/490 = 61.2；0.3*100+0.4*100+0.3*61.2 = 88.4 */
         health_report_t j; memset(&j, 0, sizeof(j));
-        j.avg_response_us = 2000; j.jitter_us = 20000;
+        j.avg_response_us = 2000; j.jitter_us = 20000; j.total_frames = HEALTH_MIN_SAMPLES;
         check_int("抖动 20ms（稳定项约 61.2）= 88", health_metrics_calculate_score(&j), 88);
     }
     {
         /* 三项全崩：各 0 分 */
         health_report_t r; memset(&r, 0, sizeof(r));
         r.avg_response_us = 200000; r.error_rate = 0.5f; r.jitter_us = 100000;
+        r.total_frames = HEALTH_MIN_SAMPLES;
         check_int("三项归零 = 0", health_metrics_calculate_score(&r), 0);
 
         /* 边界：错误率恰好 10% → 错误项 0；响应 5ms、抖动 1ms 都是满分 → 60 */
         health_report_t b; memset(&b, 0, sizeof(b));
         b.avg_response_us = 5000; b.error_rate = 0.10f; b.jitter_us = 1000;
+        b.total_frames = HEALTH_MIN_SAMPLES;
         check_int("错误率 10%（边界）= 60", health_metrics_calculate_score(&b), 60);
+    }
+
+    /* ---------- 最小样本门槛（抓 1 帧成功不能算 100 分） ---------- */
+    printf("-- 最小样本门槛 --\n");
+    {
+        health_report_t z; memset(&z, 0, sizeof(z));
+        z.avg_response_us = 2000;
+        check_int("0 帧 → -1（不给分）", health_metrics_calculate_score(&z), -1);
+        check("0 帧等级为 INSUFFICIENT",
+              strcmp(health_metrics_grade(-1), "INSUFFICIENT") == 0, NULL);
+
+        health_report_t few; memset(&few, 0, sizeof(few));
+        few.avg_response_us = 2000; few.total_frames = HEALTH_MIN_SAMPLES - 1;
+        check_int("9 帧 → -1（样本不足）", health_metrics_calculate_score(&few), -1);
+        check("9 帧 health_has_enough_samples 为假",
+              !health_has_enough_samples(&few), NULL);
+
+        health_report_t ok_r; memset(&ok_r, 0, sizeof(ok_r));
+        ok_r.avg_response_us = 2000; ok_r.total_frames = HEALTH_MIN_SAMPLES;
+        check_int("满 10 帧才开始给分", health_metrics_calculate_score(&ok_r), 100);
+        check("10 帧 health_has_enough_samples 为真",
+              health_has_enough_samples(&ok_r), NULL);
     }
 
     /* ---------- 等级划分 ---------- */
@@ -94,7 +118,20 @@ int main(void)
         snprintf(d, sizeof(d), "jitter=%d us", (int)r.jitter_us);
         check("抖动 ≈ 816us", r.jitter_us >= 800 && r.jitter_us <= 830, d);
         check_int("错误率 0", (int)(r.error_rate * 100), 0);
-        check("健康分已算出（>0）", r.health_score > 0, NULL);
+        /* 3 帧不到最小样本量：分数必须是 -1，否则就是「刚抓两帧就给 100 分」 */
+        check_int("3 帧时不给分（-1）", r.health_score, -1);
+    }
+    {
+        /* 补满 10 帧，验证 get_report 确实会算出分数 */
+        health_metrics_init();
+        for (int i = 0; i < HEALTH_MIN_SAMPLES; i++) {
+            health_metrics_update(2000, false, false, 0);
+        }
+        health_report_t r; health_metrics_get_report(&r);
+        char d[48];
+        snprintf(d, sizeof(d), "score=%d frames=%lu", r.health_score,
+                 (unsigned long)r.total_frames);
+        check("满 10 帧后 get_report 给出分数", r.health_score > 0, d);
     }
     {
         health_metrics_init();

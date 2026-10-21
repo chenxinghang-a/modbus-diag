@@ -21,16 +21,6 @@ static void check(const char *label, bool cond, const char *detail)
     else      { bad++; printf("  [FAIL] %s%s%s\n", label, detail ? "  " : "", detail ? detail : ""); }
 }
 
-/* 桩掉 IDF 侧的评分等级（真实现依赖 FreeRTOS 互斥量，主机上跑不了） */
-const char *health_metrics_grade(int score)
-{
-    if (score >= 90) return "EXCELLENT";
-    if (score >= 75) return "GOOD";
-    if (score >= 60) return "FAIR";
-    if (score >= 40) return "POOR";
-    return "CRITICAL";
-}
-
 static char buf[4096];
 
 /* 报告上下文：设备/链路/固件/事件——FR7 要求报告能看出「哪台设备、什么参数测的」 */
@@ -128,11 +118,34 @@ static void scenario_no_data(void)
           strstr(buf, "尚未采集到数据") != NULL, NULL);
 }
 
+/* 样本不足：抓到 5 帧（<10）时，报告不能宣称 100 分 */
+static void scenario_insufficient(void)
+{
+    printf("-- 样本不足（5 帧 < 10） --\n");
+    health_report_t h;
+    memset(&h, 0, sizeof(h));
+    h.total_frames = 5; h.error_frames = 0;
+    h.min_response_us = 2000; h.max_response_us = 2500;
+    h.avg_response_us = 2200; h.jitter_us = 100;
+    h.health_score = -1;
+
+    report_generate_json(buf, sizeof(buf), &h, "Dev", &g_meta);
+    check("JSON 的 health_score 为 -1", strstr(buf, "\"health_score\":-1") != NULL, NULL);
+    check("JSON 等级为 INSUFFICIENT", strstr(buf, "INSUFFICIENT") != NULL, NULL);
+    check("JSON 里没有 100 分", strstr(buf, "\"health_score\":100") == NULL, NULL);
+
+    report_generate_html(buf, sizeof(buf), &h, "Dev", &g_meta);
+    check("HTML 标注样本不足", strstr(buf, "Insufficient") != NULL, NULL);
+    check("HTML 给出帧数与门槛", strstr(buf, "5 frames") != NULL &&
+          strstr(buf, ">=10") != NULL, NULL);
+}
+
 int main(void)
 {
     scenario_normal();
     scenario_degraded();
     scenario_no_data();
+    scenario_insufficient();
 
     printf("\n合计: OK %d / FAIL %d\n", ok, bad);
     return bad ? 1 : 0;

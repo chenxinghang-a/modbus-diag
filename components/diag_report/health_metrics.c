@@ -82,7 +82,10 @@ void health_metrics_update(int32_t response_us, bool is_error, bool is_exception
 
 int health_metrics_calculate_score(const health_report_t *report)
 {
-    if (!report) return 0;
+    if (!report) return -1;
+    /* 样本太少不给分：3 帧全成功也说明不了通信质量，给 100 分等于骗人。
+     * 返回 -1 由上层显示为「样本不足」。 */
+    if (report->total_frames < HEALTH_MIN_SAMPLES) return -1;
 
     /* Response time score: <5ms=100, >100ms=0 */
     float rt_score = 100.0f;
@@ -112,6 +115,7 @@ int health_metrics_calculate_score(const health_report_t *report)
 
 const char *health_metrics_grade(int score)
 {
+    if (score < 0) return "INSUFFICIENT";
     if (score >= 90) return "EXCELLENT";
     if (score >= 75) return "GOOD";
     if (score >= 60) return "FAIR";

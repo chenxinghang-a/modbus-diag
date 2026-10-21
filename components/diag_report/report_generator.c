@@ -10,7 +10,7 @@ int report_generate_json(char *buf, size_t buf_size, const health_report_t *heal
 
     /* min_response_us 初值是 INT32_MAX：没有计时样本时必须落成 -1，
      * 否则 JSON 里会出现 2147483647，下游画图会把坐标轴拉到天上。 */
-    bool has_timing = (health->total_frames > 0) &&
+    bool has_timing = health_has_enough_samples(health) &&
                       (health->min_response_us != INT32_MAX);
 
     /* 链路参数：报告里必须能看出「这是哪台设备、用什么参数测的」，否则回溯不了 */
@@ -96,19 +96,27 @@ int report_generate_html(char *buf, size_t buf_size, const health_report_t *heal
 {
     if (!buf || !health) return 0;
 
-    bool has_data = (health->total_frames > 0);
+    /* 三种状态要分开：「一帧没抓到」和「只抓到 3 帧」都不是可评分状态，
+     * 但含义不同 —— 前者是没测，后者是测得不够。 */
+    bool has_data = health->total_frames > 0;
+    bool enough   = health_has_enough_samples(health);
     const char *color = "#888888";
-    if (has_data) {
+    if (enough) {
         color = "#00ff00";
         if (health->health_score < 60) color = "#ff0000";
         else if (health->health_score < 75) color = "#ffaa00";
     }
 
     /* 分数行：没数据时不能写 100/100 —— 那是把「没测」当成「没问题」 */
-    char health_line[64];
-    if (has_data) {
+    char health_line[80];
+    if (enough) {
         snprintf(health_line, sizeof(health_line), "%d/100 (%s)",
                  health->health_score, health_metrics_grade(health->health_score));
+    } else if (has_data) {
+        snprintf(health_line, sizeof(health_line),
+                 "Insufficient (%lu frames, need >=%d)",
+                 (unsigned long)health->total_frames, HEALTH_MIN_SAMPLES);
+        color = "#ffaa00";
     } else {
         snprintf(health_line, sizeof(health_line), "No Data (no frames)");
     }
