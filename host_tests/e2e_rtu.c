@@ -23,6 +23,7 @@
   #define BAD_SOCK INVALID_SOCKET
 #else
   #include <sys/socket.h>
+  #include <sys/time.h>        /* setsockopt 用 struct timeval；Windows 分支用的是 DWORD */
   #include <netinet/in.h>
   #include <arpa/inet.h>
   #include <unistd.h>
