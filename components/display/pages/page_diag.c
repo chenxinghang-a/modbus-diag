@@ -10,6 +10,10 @@
 #include "frame_parser.h"
 #include "log_storage.h"
 #include "wifi_manager.h"
+#include "device_scanner.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "modbus_master.h"
 #include "web_server.h"
 #include "mdns_service.h"
 #include <stdio.h>
@@ -153,14 +157,31 @@ static void diag_key(uint8_t key)
     switch (key) {
         case 0: /* UP - export */
         {
+            /* 报告里带上「哪台设备、什么参数、跑了多久、最近发生了什么」——
+             * FR7 要求含设备信息/通信参数/异常事件记录，之前只有统计与评分。 */
+            static char events[512];
+            log_storage_read(events, sizeof(events), 12);
+            modbus_config_t mcfg;
+            modbus_master_get_config(&mcfg);
+            const device_info_t *dev = device_scan_selected_device();
+            report_meta_t meta = {
+                .slave_addr = dev ? dev->slave_addr : 0,
+                .baud = mcfg.baud_rate,
+                .parity = mcfg.parity,
+                .stop_bits = mcfg.stop_bits,
+                .fw_version = "v1.0.0",
+                .uptime_s = (uint32_t)((xTaskGetTickCount() * portTICK_PERIOD_MS) / 1000),
+                .events = events,
+            };
+
             char json[1024];
-            report_generate_json(json, sizeof(json), &s_report, "ESP32-ModbusDiag");
+            report_generate_json(json, sizeof(json), &s_report, "ESP32-ModbusDiag", &meta);
             report_export_to_file(json, "report.json");
 
             /* 同一份数据再出一份 HTML：浏览器直接能看，Web 的 /report 优先发它。
              * 放静态区，别压在 GUI 任务栈上（3KB 栈很容易爆）。 */
-            static char html[3072];
-            int n = report_generate_html(html, sizeof(html), &s_report, "ESP32-ModbusDiag");
+            static char html[4096];
+            int n = report_generate_html(html, sizeof(html), &s_report, "ESP32-ModbusDiag", &meta);
             if (n > 0 && (size_t)n < sizeof(html)) {
                 report_export_to_file(html, "report.html");
             }

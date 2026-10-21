@@ -4,7 +4,7 @@
 #include <string.h>
 
 int report_generate_json(char *buf, size_t buf_size, const health_report_t *health,
-                         const char *device_info)
+                         const char *device_info, const report_meta_t *meta)
 {
     if (!buf || !health) return 0;
 
@@ -13,9 +13,19 @@ int report_generate_json(char *buf, size_t buf_size, const health_report_t *heal
     bool has_timing = (health->total_frames > 0) &&
                       (health->min_response_us != INT32_MAX);
 
+    /* 链路参数：报告里必须能看出「这是哪台设备、用什么参数测的」，否则回溯不了 */
+    char frame_s[8];
+    snprintf(frame_s, sizeof(frame_s), "8%c%u",
+             meta && meta->parity == 1 ? 'O' : (meta && meta->parity == 2 ? 'E' : 'N'),
+             meta && meta->stop_bits ? (unsigned)meta->stop_bits : 1u);
+
     return snprintf(buf, buf_size,
         "{"
         "\"device\":\"%s\","
+        "\"link\":{\"slave\":%u,\"baud\":%lu,\"frame\":\"%s\"},"
+        "\"firmware\":\"%s\","
+        "\"uptime_s\":%lu,"
+        "\"events_url\":\"/log\","
         "\"health_score\":%d,"
         "\"grade\":\"%s\","
         "\"response\":{"
@@ -39,6 +49,11 @@ int report_generate_json(char *buf, size_t buf_size, const health_report_t *heal
         "}"
         "}",
         device_info ? device_info : "unknown",
+        meta ? (unsigned)meta->slave_addr : 0u,
+        meta ? (unsigned long)meta->baud : 0ul,
+        frame_s,
+        (meta && meta->fw_version) ? meta->fw_version : "unknown",
+        meta ? (unsigned long)meta->uptime_s : 0ul,
         health->health_score,
         health_metrics_grade(health->health_score),
         (long)(has_timing ? health->min_response_us : -1),
@@ -57,8 +72,27 @@ int report_generate_json(char *buf, size_t buf_size, const health_report_t *heal
     );
 }
 
+/* 把文本里的 HTML 元字符转义（日志里可能出现 & < >） */
+static void html_escape(const char *in, char *out, size_t out_size)
+{
+    size_t o = 0;
+    if (!out || out_size == 0) return;
+    out[0] = '\0';
+    if (!in) return;
+    for (const char *p = in; *p && o + 6 < out_size; p++) {
+        switch (*p) {
+            case '&':  memcpy(out + o, "&amp;", 5); o += 5; break;
+            case '<':  memcpy(out + o, "&lt;", 4);  o += 4; break;
+            case '>':  memcpy(out + o, "&gt;", 4);  o += 4; break;
+            case '"':  memcpy(out + o, "&quot;", 6); o += 6; break;
+            default:   out[o++] = *p; break;
+        }
+    }
+    out[o] = '\0';
+}
+
 int report_generate_html(char *buf, size_t buf_size, const health_report_t *health,
-                         const char *device_info)
+                         const char *device_info, const report_meta_t *meta)
 {
     if (!buf || !health) return 0;
 
@@ -130,6 +164,21 @@ int report_generate_html(char *buf, size_t buf_size, const health_report_t *heal
         snprintf(jit_s, sizeof(jit_s), "--");
     }
 
+    /* 事件记录：把最近若干条操作日志内嵌进报告，报告本身就是完整的现场快照，
+     * 不用再让人去点 /log 翻。日志里的 < > & 必须转义，否则整页结构会被打乱。 */
+    static char events_esc[1200];
+    char link_s[32];
+    snprintf(link_s, sizeof(link_s), "#%u  %lu 8%c%u",
+             meta ? (unsigned)meta->slave_addr : 0u,
+             meta ? (unsigned long)meta->baud : 0ul,
+             meta && meta->parity == 1 ? 'O' : (meta && meta->parity == 2 ? 'E' : 'N'),
+             meta && meta->stop_bits ? (unsigned)meta->stop_bits : 1u);
+    if (meta && meta->events && meta->events[0]) {
+        html_escape(meta->events, events_esc, sizeof(events_esc));
+    } else {
+        snprintf(events_esc, sizeof(events_esc), "(no events)");
+    }
+
     return snprintf(buf, buf_size,
         "<!DOCTYPE html><html><head>"
         "<meta charset='utf-8'>"
@@ -147,6 +196,9 @@ int report_generate_html(char *buf, size_t buf_size, const health_report_t *heal
         "<h1>Modbus Diagnostic Report</h1>"
         "<div class='card'>"
         "<p><span class='label'>Device:</span> <span class='val'>%s</span></p>"
+        "<p><span class='label'>Link:</span> <span class='val'>%s</span></p>"
+        "<p><span class='label'>Firmware:</span> <span class='val'>%s</span></p>"
+        "<p><span class='label'>Uptime:</span> <span class='val'>%lu s</span></p>"
         "<p><span class='label'>Health:</span> <span class='val' style='color:%s'>%s</span></p>"
         "</div>"
         "<div class='card'>"
@@ -166,15 +218,22 @@ int report_generate_html(char *buf, size_t buf_size, const health_report_t *heal
         "<div class='card'>"
         "<h3>Diagnosis</h3><ul>%s</ul>"
         "</div>"
+        "<div class='card'>"
+        "<h3>Event Log (recent)</h3><pre style='white-space:pre-wrap;margin:0'>%s</pre>"
+        "</div>"
         "</body></html>",
         color,
         device_info ? device_info : "Unknown",
+        link_s,
+        (meta && meta->fw_version) ? meta->fw_version : "unknown",
+        meta ? (unsigned long)meta->uptime_s : 0ul,
         color, health_line,
         min_s, max_s, avg_s, jit_s,
         (unsigned long)health->total_frames,
         (unsigned long)health->error_frames,
         (unsigned long)health->exception_frames,
         health->error_rate * 100.0f,
-        advice
+        advice,
+        events_esc
     );
 }
