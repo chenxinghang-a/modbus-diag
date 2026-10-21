@@ -62,6 +62,16 @@ echo "=== 流量统计（错误率 / 滑动平均 / 每秒速率） ==="
 "$OUT_DIR/test_traffic" || fail=1
 
 echo
+echo "=== Modbus TCP（MBAP 组帧 / 解帧 / 事务号校验） ==="
+"$CC" $CFLAGS \
+    -I host_tests/stubs \
+    -I components/modbus_core \
+    host_tests/test_tcp.c \
+    components/modbus_core/modbus_tcp.c \
+    -lm -o "$OUT_DIR/test_tcp"
+"$OUT_DIR/test_tcp" || fail=1
+
+echo
 echo "=== 头文件自包含检查 ==="
 # 每个头文件单独编译一次：只 include 它，不先包含 stdio/string。
 # 这一项是 CI 上真炸过才加的：report_generator.h 用了 size_t 却没包含 stddef.h，
