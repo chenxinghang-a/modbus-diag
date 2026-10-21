@@ -5,6 +5,7 @@
 #include "nvs_config.h"
 #include "log_storage.h"
 #include "modbus_master.h"
+#include "app_config.h"
 #include <stdio.h>
 
 static bool s_need_redraw = true;
@@ -12,9 +13,9 @@ static int s_selected = 0;
 
 static const char *s_menu_labels[] = {
     "Baud Rate",
-    "Device Address",
     "Timeout (ms)",
-    "WiFi SSID",
+    "Retry Count",
+    "AP Name",
     "About",
 };
 
@@ -28,6 +29,12 @@ static const int s_baud_count = sizeof(s_baud_rates) / sizeof(s_baud_rates[0]);
 static const uint32_t s_timeouts[] = {50, 100, 200, 500, 1000};
 static const int s_timeout_count = sizeof(s_timeouts) / sizeof(s_timeouts[0]);
 static int s_timeout_idx = 0;
+
+/* 重试次数：论文 FR1 写了「支持可配置的超时时间和重试次数」，
+ * 但 retry_count 之前既没 UI 也没存 NVS，改了配置也没入口。 */
+static const uint8_t s_retries[] = {0, 1, 2, 3};
+static const int s_retry_count = sizeof(s_retries) / sizeof(s_retries[0]);
+static int s_retry_idx = 0;
 
 static void settings_enter(void)
 {
@@ -48,6 +55,13 @@ static void settings_enter(void)
     nvs_config_get_u32("timeout_ms", &tmo, 50);
     for (int i = 0; i < s_timeout_count; i++) {
         if (s_timeouts[i] == tmo) { s_timeout_idx = i; break; }
+    }
+
+    /* Load saved retry count */
+    uint32_t rt = 2;
+    nvs_config_get_u32("retry_count", &rt, 2);
+    for (int i = 0; i < s_retry_count; i++) {
+        if (s_retries[i] == rt) { s_retry_idx = i; break; }
     }
 }
 
@@ -73,6 +87,18 @@ static void settings_update(void)
     snprintf(buf, sizeof(buf), "%lu ms", (unsigned long)s_timeouts[s_timeout_idx]);
     ui_list_item_draw(20, 30 + MENU_ITEM_H, TFT_WIDTH - 40, "Timeout (ms)", buf,
                       s_selected == 1);
+
+    /* 第三项：重试次数（FR1 要求可配置） */
+    snprintf(buf, sizeof(buf), "%u", (unsigned)s_retries[s_retry_idx]);
+    ui_list_item_draw(20, 30 + 2 * MENU_ITEM_H, TFT_WIDTH - 40, "Retry Count", buf,
+                      s_selected == 2);
+
+    /* 第四项：只读信息。原来的 "WiFi SSID" 按 OK 什么都不发生、也没有输入界面，
+     * 是个空承诺；改成显示当前 AP 名称，"About" 同理只显示版本。 */
+    ui_list_item_draw(20, 30 + 3 * MENU_ITEM_H, TFT_WIDTH - 40, "AP Name",
+                      WIFI_AP_SSID, s_selected == 3);
+    ui_list_item_draw(20, 30 + 4 * MENU_ITEM_H, TFT_WIDTH - 40, "About",
+                      "v1.0.0", s_selected == 4);
 
     tft_draw_string(20, TFT_HEIGHT - 18,
                     "[UP/DN] Navigate  [OK] Change  [BACK] Exit",
@@ -121,6 +147,17 @@ static void settings_key(uint8_t key)
                 modbus_master_configure(&cfg);
                 log_storage_logf("config: timeout=%lu ms (saved to NVS)",
                                  (unsigned long)cfg.timeout_ms);
+            } else if (s_selected == 2) {
+                /* Cycle retry count：影响超时/CRC 错时的重发次数 */
+                s_retry_idx = (s_retry_idx + 1) % s_retry_count;
+                nvs_config_set_u32("retry_count", s_retries[s_retry_idx]);
+
+                modbus_config_t cfg;
+                modbus_master_get_config(&cfg);
+                cfg.retry_count = s_retries[s_retry_idx];
+                modbus_master_configure(&cfg);
+                log_storage_logf("config: retry=%u (saved to NVS)",
+                                 (unsigned)cfg.retry_count);
             }
             s_need_redraw = true;
             break;

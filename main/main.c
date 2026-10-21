@@ -174,10 +174,12 @@ static void modbus_task(void *arg)
     cfg.parity = (uint8_t)v;
     nvs_config_get_u32("timeout_ms", &v, cfg.timeout_ms);
     cfg.timeout_ms = v;
+    nvs_config_get_u32("retry_count", &v, cfg.retry_count);
+    cfg.retry_count = (uint8_t)v;
     modbus_master_configure(&cfg);
-    ESP_LOGI(TAG, "RS-485 restored: %lu baud, parity %u, timeout %lu ms",
+    ESP_LOGI(TAG, "RS-485 restored: %lu baud, parity %u, timeout %lu ms, retry %u",
              (unsigned long)cfg.baud_rate, (unsigned)cfg.parity,
-             (unsigned long)cfg.timeout_ms);
+             (unsigned long)cfg.timeout_ms, (unsigned)cfg.retry_count);
 
     while (1) {
         modbus_master_process();
