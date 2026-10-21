@@ -10,7 +10,9 @@
 | `netlist.json` | **单一数据源**：元件表 + 网表（每个元件每个脚的归属网络） |
 | `BOM.csv` | 由 `tools/gen_bom.py` 从网表生成，勿手改 |
 | `tools/gen_bom.py` | 生成 BOM |
-| `tools/check_hardware.py` | 自检：网表一致性 + 固件引脚一致性 + BOM 同步（32 项） |
+| `tools/check_hardware.py` | 自检：网表一致性 + 固件引脚一致性 + BOM 同步（35 项） |
+| `tools/gen_placement.py` | 生成布局方案（坐标表 + SVG），并做几何自检：不重叠、不越界、接插件靠边 |
+| `placement.csv` / `placement.svg` | 布局坐标与示意图（100×70mm 板框） |
 | `modbus-diag.kicad_pro` | KiCad 工程骨架，等待按网表绘制原理图/PCB |
 
 ```bash
@@ -88,6 +90,19 @@ R7 = 10k 下拉，保证默认接收。这条也是现场"上电后整条总线�
 
 已做过变异验证：把 MOSI 从 GPIO11 改到 GPIO13，自检立刻报
 `TFT_PIN_MOSI=GPIO11 → SPI_MOSI 网表中该脚在 <未连接>`。
+
+## 布局方案
+
+`placement.csv` / `placement.svg` 给出 43 个元件在 100×70mm 板框内的坐标，按功能分块：
+电源链（左上）· 主控（中上）· RS-485（右上）· 下载/USB（左中）· 显示接口（中下）· 按键（下排）。
+
+自检项（`gen_placement.py` 每次运行都检查，也进了 CI）：
+- 每个元件都在板框内且距板边 ≥3mm
+- 任意两个元件间距 ≥0.6mm（含丝印余量）
+- USB-C 与 RS-485 端子必须靠板边
+- 坐标表里的元件与网表**完全一致**（多一个少一个都报错）
+
+> 尺寸按封装标称值估算（0402=1.0×0.5、SOIC-8=4.9×3.9 等），落板前需按实际封装库复核。
 
 ## 还没做的
 
