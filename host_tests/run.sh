@@ -52,6 +52,16 @@ echo "=== 健康评分模型（权重 / 分段线性 / 等级 / 统计） ==="
 "$OUT_DIR/test_health" || fail=1
 
 echo
+echo "=== 流量统计（错误率 / 滑动平均 / 每秒速率） ==="
+"$CC" $CFLAGS \
+    -I host_tests/stubs \
+    -I components/protocol_analyzer \
+    host_tests/test_traffic.c \
+    components/protocol_analyzer/traffic_stats.c \
+    -lm -o "$OUT_DIR/test_traffic"
+"$OUT_DIR/test_traffic" || fail=1
+
+echo
 echo "=== 头文件自包含检查 ==="
 # 每个头文件单独编译一次：只 include 它，不先包含 stdio/string。
 # 这一项是 CI 上真炸过才加的：report_generator.h 用了 size_t 却没包含 stddef.h，
