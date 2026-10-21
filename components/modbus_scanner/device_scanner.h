@@ -23,6 +23,9 @@ typedef struct {
 /* Start a scan (blocking). Returns scan result. */
 esp_err_t device_scan_start(const scan_config_t *cfg, scan_result_t *result);
 
+/* 请求中止正在进行的扫描（下一个地址前生效）。扫描结束后自动复位。 */
+void device_scan_cancel(void);
+
 /* Quick scan: only scan specific baud and address range */
 esp_err_t device_scan_quick(uint32_t baud, uint8_t addr_start, uint8_t addr_end,
                             scan_result_t *result);

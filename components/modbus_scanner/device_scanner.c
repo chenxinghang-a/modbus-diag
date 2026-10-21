@@ -58,6 +58,15 @@ esp_err_t device_read_mei(uint8_t slave, char *id_buf, size_t buf_size)
     return ESP_FAIL;
 }
 
+/* 扫描取消：现场扫描 247 个地址 × 5 档波特率可能要几分钟，
+ * 用户必须能中途退出（否则界面在整个过程中都动不了）。 */
+static volatile bool s_cancel = false;
+
+void device_scan_cancel(void)
+{
+    s_cancel = true;
+}
+
 esp_err_t device_scan_start(const scan_config_t *cfg, scan_result_t *result)
 {
     if (!cfg || !result) return ESP_ERR_INVALID_ARG;
@@ -92,7 +101,10 @@ esp_err_t device_scan_start(const scan_config_t *cfg, scan_result_t *result)
 
     ESP_LOGI(TAG, "Scanning %d baud rates, addresses %d-%d", baud_cnt, cfg->addr_start, cfg->addr_end);
 
-    for (int b = 0; b < baud_cnt; b++) {
+    s_cancel = false;
+    bool aborted = false;
+
+    for (int b = 0; b < baud_cnt && !aborted; b++) {
         /* Reconfigure baud rate（在现有配置上只改三个字段，别把 data/stop/parity 清零） */
         modbus_config_t mcfg = saved;
         mcfg.baud_rate = bauds[b];
@@ -101,6 +113,7 @@ esp_err_t device_scan_start(const scan_config_t *cfg, scan_result_t *result)
         modbus_master_configure(&mcfg);
 
         for (uint8_t addr = cfg->addr_start; addr <= cfg->addr_end; addr++) {
+            if (s_cancel) { aborted = true; break; }
             step++;
 
             if (cfg->on_progress) {
