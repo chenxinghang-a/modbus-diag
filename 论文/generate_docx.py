@@ -223,6 +223,31 @@ def parse_markdown_and_build(doc, md_path):
     for line in lines:
         line = line.rstrip('\n')
 
+        # 插图：![图 4-1  系统硬件架构](figures/xxx.png)
+        m_img = re.match(r'^\s*!\[(.*?)\]\((.+?)\)\s*$', line)
+        if m_img and not in_code_block:
+            flush_text()
+            flush_table()
+            caption, rel = m_img.group(1), m_img.group(2)
+            img_path = os.path.join(os.path.dirname(os.path.abspath(md_path)), rel)
+            if os.path.exists(img_path):
+                p = doc.add_paragraph()
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                p.paragraph_format.space_before = Pt(6)
+                p.paragraph_format.space_after = Pt(3)
+                p.add_run().add_picture(img_path, width=Inches(5.9))
+                if caption:
+                    cap = doc.add_paragraph()
+                    cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    cap.paragraph_format.space_after = Pt(10)
+                    run = cap.add_run(caption)
+                    run.font.name = FONT_BODY
+                    run.font.size = Pt(10.5)      # 五号
+                    run._element.rPr.rFonts.set(qn('w:eastAsia'), FONT_BODY)
+            else:
+                print(f"  ! 找不到插图 {img_path}，跳过")
+            continue
+
         # 代码块
         if line.startswith('```'):
             if in_code_block:
