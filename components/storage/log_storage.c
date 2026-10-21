@@ -13,6 +13,7 @@ static const char *LOG_PATH = "/spiffs/oplog.txt";
 /* 单份日志上限。SPIFFS 只有 64KB，而诊断报告也要写在这里；
  * 日志无限增长会把分区吃满，最后报告写不进去、还查不出原因。 */
 #define LOG_MAX_BYTES   (8 * 1024)
+#define LOG_KEEP_BYTES  (4 * 1024)   /* 轮转时保留的尾部字节数 */
 
 static bool spiffs_is_mounted(void)
 {
@@ -44,10 +45,29 @@ esp_err_t log_storage_append(const char *entry)
         long size = ftell(probe);
         fclose(probe);
         if (size > LOG_MAX_BYTES) {
-            FILE *trunc = fopen(LOG_PATH, "w");
-            if (trunc) {
-                fprintf(trunc, "[log rotated, previous > %d bytes]\n", LOG_MAX_BYTES);
-                fclose(trunc);
+            /* 轮转保留**尾部** LOG_KEEP_BYTES，而不是整篇清空。
+             * 原来超限就把文件清成一行 "log rotated" —— 恰恰在跑久了、最需要回溯的
+             * 时候把全部现场证据扔掉。现在留最近 4KB，只丢更早的部分。 */
+            static char rot[LOG_KEEP_BYTES + 1];
+            FILE *r = fopen(LOG_PATH, "r");
+            if (r) {
+                if (fseek(r, -(long)LOG_KEEP_BYTES, SEEK_END) != 0) fseek(r, 0, SEEK_SET);
+                size_t n = fread(rot, 1, LOG_KEEP_BYTES, r);
+                rot[n] = 0;
+                fclose(r);
+
+                /* 截断点可能落在半行上，丢掉第一行残片 */
+                char *keep = rot;
+                char *nl = strchr(rot, '\n');
+                if (nl && n == LOG_KEEP_BYTES) keep = nl + 1;
+
+                FILE *w = fopen(LOG_PATH, "w");
+                if (w) {
+                    fprintf(w, "[log rotated at %d bytes, older entries dropped]\n",
+                            LOG_MAX_BYTES);
+                    fwrite(keep, 1, strlen(keep), w);
+                    fclose(w);
+                }
             }
         }
     }
@@ -81,20 +101,32 @@ esp_err_t log_storage_logf(const char *fmt, ...)
 
 esp_err_t log_storage_read(char *buf, size_t buf_size, int max_lines)
 {
+    if (!buf || buf_size == 0) return ESP_ERR_INVALID_ARG;
+    buf[0] = '\0';
+
     FILE *f = fopen(LOG_PATH, "r");
-    if (!f) { buf[0] = '\0'; return ESP_OK; }
-    size_t total = 0;
+    if (!f) return ESP_OK;
+
+    /* 取**最后** max_lines 行。
+     * 原实现从文件头开始读 N 行 —— 报告写着「最近 12 条」，实际给的是开机时最老的
+     * 12 条，等于把最没用的部分端给用户。日志上限 8KB，扫两遍的代价可忽略。 */
     char line[128];
-    int lines = 0;
-    while (fgets(line, sizeof(line), f) && lines < max_lines) {
+    int total = 0;
+    while (fgets(line, sizeof(line), f)) total++;
+
+    int skip = (max_lines > 0 && total > max_lines) ? (total - max_lines) : 0;
+
+    rewind(f);
+    size_t out = 0;
+    int idx = 0;
+    while (fgets(line, sizeof(line), f)) {
+        if (idx++ < skip) continue;
         size_t len = strlen(line);
-        if (total + len < buf_size) {
-            memcpy(buf + total, line, len);
-            total += len;
-        }
-        lines++;
+        if (out + len >= buf_size) break;
+        memcpy(buf + out, line, len);
+        out += len;
     }
-    buf[total] = '\0';
+    buf[out] = '\0';
     fclose(f);
     return ESP_OK;
 }
