@@ -78,6 +78,9 @@ bash host_tests/run.sh
 cd sim && python test_sim.py
 ```
 
+两层测试都在 GitHub Actions 里自动执行（`.github/workflows/host-tests.yml`），每次 push 都会跑。
+固件构建需要完整 ESP-IDF 环境（下载数百 MB、耗时数分钟），不放进 CI。
+
 主机测试覆盖的是「编译通过也发现不了」的错误：响应帧错位、`len=0` 除零、
 `INT32_MAX` 哨兵值写进报告、CRC 查表与逐位算法不一致等。
 
