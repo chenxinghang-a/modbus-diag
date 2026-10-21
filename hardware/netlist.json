@@ -7,101 +7,867 @@
     "note": "本网表与论文第 4 章一一对应；固件引脚以 components/common_config/app_config.h 为准，二者由 check_hardware.py 强制一致。"
   },
   "components": {
-    "U1": {"value": "ESP32-S3-WROOM-1-N8R8", "mpn": "ESP32-S3-WROOM-1-N8R8", "package": "SMD-40 18x25.5mm", "note": "主控，8MB Flash + 8MB PSRAM，PCB 天线"},
-    "U2": {"value": "MAX3485E", "mpn": "MAX3485EESA+", "package": "SOIC-8", "note": "3.3V 半双工 RS-485 收发器"},
-    "U3": {"value": "CH340C", "mpn": "CH340C", "package": "SOP-16", "note": "USB-UART，内置振荡器，无需外部晶振"},
-    "U4": {"value": "AMS1117-3.3", "mpn": "AMS1117-3.3", "package": "SOT-223", "note": "5V→3.3V LDO，需 ≥100mm² 铺铜散热"},
-    "U5": {"value": "USBLC6-2SC6", "mpn": "USBLC6-2SC6", "package": "SOT-23-6", "note": "USB D+/D- ESD 保护"},
-
-    "J1": {"value": "USB-C 16P", "mpn": "TYPE-C-16P-SMD", "package": "SMD", "note": "5V 受电 + CH340 数据"},
-    "J2": {"value": "RS-485 端子", "mpn": "KF128-3P-5.08", "package": "THT 5.08mm", "note": "A / B / GND"},
-    "J3": {"value": "TFT 排座 14P", "mpn": "HDR-1x14-2.54", "package": "THT 2.54mm", "note": "ILI9341 2.8\" 模块"},
-    "JP1": {"value": "终端电阻跳线", "mpn": "HDR-1x2-2.54", "package": "THT 2.54mm", "note": "短接启用 120Ω 终端"},
-
-    "SW1": {"value": "UP", "mpn": "TS-1187A-6x6", "package": "6x6 轻触", "note": "上翻/加"},
-    "SW2": {"value": "DOWN", "mpn": "TS-1187A-6x6", "package": "6x6 轻触", "note": "下翻/减"},
-    "SW3": {"value": "OK", "mpn": "TS-1187A-6x6", "package": "6x6 轻触", "note": "确认，长按 800ms 走功能扩展"},
-    "SW4": {"value": "BACK", "mpn": "TS-1187A-6x6", "package": "6x6 轻触", "note": "返回"},
-    "SW5": {"value": "BOOT", "mpn": "TS-1187A-6x6", "package": "6x6 轻触", "note": "拉低 GPIO0 进下载模式"},
-    "SW6": {"value": "RESET", "mpn": "TS-1187A-6x6", "package": "6x6 轻触", "note": "拉低 EN 复位"},
-
-    "R1": {"value": "5.1k", "mpn": "RC0402FR-075K1L", "package": "0402", "note": "USB-C CC1 下拉"},
-    "R2": {"value": "5.1k", "mpn": "RC0402FR-075K1L", "package": "0402", "note": "USB-C CC2 下拉"},
-    "R3": {"value": "30k 1%", "mpn": "RC0402FR-0730KL", "package": "0402", "note": "波形分压上臂"},
-    "R4": {"value": "10k 1%", "mpn": "RC0402FR-0710KL", "package": "0402", "note": "波形分压下臂（分压比 1/4）"},
-    "R5": {"value": "10k", "mpn": "RC0402FR-0710KL", "package": "0402", "note": "GPIO0 上拉，保证正常启动"},
-    "R6": {"value": "120R 1%", "mpn": "RC0805FR-07120RL", "package": "0805", "note": "RS-485 终端电阻，经 JP1 接入"},
-    "R7": {"value": "10k", "mpn": "RC0402FR-0710KL", "package": "0402", "note": "DE/RE 下拉：上电默认接收态"},
-    "R8": {"value": "1k", "mpn": "RC0402FR-071KL", "package": "0402", "note": "电源指示灯限流"},
-    "R9": {"value": "1k", "mpn": "RC0402FR-071KL", "package": "0402", "note": "状态 LED 限流"},
-    "R10": {"value": "10k", "mpn": "RC0402FR-0710KL", "package": "0402", "note": "EN 上拉"},
-
-    "F1": {"value": "PTC 0.5A/6V", "mpn": "MF-MSMF050", "package": "0805", "note": "5V 输入自恢复保险"},
-    "D1": {"value": "LED 绿", "mpn": "LTST-C191KGKT", "package": "0603", "note": "电源指示（常亮）"},
-    "D2": {"value": "LED 蓝", "mpn": "LTST-C191TBKT", "package": "0603", "note": "运行状态，GPIO48"},
-    "D3": {"value": "SMBJ5.0A", "mpn": "SMBJ5.0A", "package": "SMB", "note": "5V 输入 TVS"},
-    "D4": {"value": "SMBJ6.5CA", "mpn": "SMBJ6.5CA", "package": "SMB", "note": "A 线 TVS"},
-    "D5": {"value": "SMBJ6.5CA", "mpn": "SMBJ6.5CA", "package": "SMB", "note": "B 线 TVS"},
-
-    "C1": {"value": "10uF", "mpn": "TAJA106K016RNJ", "package": "1206 钽", "note": "5V 输入储能"},
-    "C2": {"value": "100nF", "mpn": "CL10B104KB8NNNC", "package": "0402", "note": "5V 输入高频去耦"},
-    "C3": {"value": "22uF", "mpn": "TAJA226K010RNJ", "package": "1206 钽", "note": "3V3 输出储能，ESR 0.5Ω 满足 AMS1117 稳定要求"},
-    "C4": {"value": "100nF", "mpn": "CL10B104KB8NNNC", "package": "0402", "note": "3V3 输出去耦"},
-    "C5": {"value": "100nF", "mpn": "CL10B104KB8NNNC", "package": "0402", "note": "U1 VDD3P3 就近去耦"},
-    "C6": {"value": "100nF", "mpn": "CL10B104KB8NNNC", "package": "0402", "note": "U1 VDD_SDIO 去耦"},
-    "C7": {"value": "100nF", "mpn": "CL10B104KB8NNNC", "package": "0402", "note": "U2 VCC 去耦"},
-    "C8": {"value": "100nF", "mpn": "CL10B104KB8NNNC", "package": "0402", "note": "U3 V3 去耦"},
-    "C9": {"value": "100nF", "mpn": "CL10B104KB8NNNC", "package": "0402", "note": "U3 VCC 去耦"},
-    "C10": {"value": "1uF", "mpn": "CL05A105KA5NQNC", "package": "0402", "note": "EN 上电延时"}
+    "U1": {
+      "value": "ESP32-S3-WROOM-1-N8R8",
+      "mpn": "ESP32-S3-WROOM-1-N8R8",
+      "package": "SMD-40 18x25.5mm",
+      "note": "主控，8MB Flash + 8MB PSRAM，PCB 天线"
+    },
+    "U2": {
+      "value": "MAX3485E",
+      "mpn": "MAX3485EESA+",
+      "package": "SOIC-8",
+      "note": "3.3V 半双工 RS-485 收发器"
+    },
+    "U3": {
+      "value": "CH340C",
+      "mpn": "CH340C",
+      "package": "SOP-16",
+      "note": "USB-UART，内置振荡器，无需外部晶振"
+    },
+    "U4": {
+      "value": "AMS1117-3.3",
+      "mpn": "AMS1117-3.3",
+      "package": "SOT-223",
+      "note": "5V→3.3V LDO，需 ≥100mm² 铺铜散热"
+    },
+    "U5": {
+      "value": "USBLC6-2SC6",
+      "mpn": "USBLC6-2SC6",
+      "package": "SOT-23-6",
+      "note": "USB D+/D- ESD 保护"
+    },
+    "J1": {
+      "value": "USB-C 16P",
+      "mpn": "TYPE-C-16P-SMD",
+      "package": "SMD",
+      "note": "5V 受电 + CH340 数据"
+    },
+    "J2": {
+      "value": "RS-485 端子",
+      "mpn": "KF128-3P-5.08",
+      "package": "THT 5.08mm",
+      "note": "A / B / GND"
+    },
+    "J3": {
+      "value": "TFT 排座 14P",
+      "mpn": "HDR-1x14-2.54",
+      "package": "THT 2.54mm",
+      "note": "ILI9341 2.8\" 模块"
+    },
+    "JP1": {
+      "value": "终端电阻跳线",
+      "mpn": "HDR-1x2-2.54",
+      "package": "THT 2.54mm",
+      "note": "短接启用 120Ω 终端"
+    },
+    "SW1": {
+      "value": "UP",
+      "mpn": "TS-1187A-6x6",
+      "package": "6x6 轻触",
+      "note": "上翻/加"
+    },
+    "SW2": {
+      "value": "DOWN",
+      "mpn": "TS-1187A-6x6",
+      "package": "6x6 轻触",
+      "note": "下翻/减"
+    },
+    "SW3": {
+      "value": "OK",
+      "mpn": "TS-1187A-6x6",
+      "package": "6x6 轻触",
+      "note": "确认，长按 800ms 走功能扩展"
+    },
+    "SW4": {
+      "value": "BACK",
+      "mpn": "TS-1187A-6x6",
+      "package": "6x6 轻触",
+      "note": "返回"
+    },
+    "SW5": {
+      "value": "BOOT",
+      "mpn": "TS-1187A-6x6",
+      "package": "6x6 轻触",
+      "note": "拉低 GPIO0 进下载模式"
+    },
+    "SW6": {
+      "value": "RESET",
+      "mpn": "TS-1187A-6x6",
+      "package": "6x6 轻触",
+      "note": "拉低 EN 复位"
+    },
+    "R1": {
+      "value": "5.1k",
+      "mpn": "RC0402FR-075K1L",
+      "package": "0402",
+      "note": "USB-C CC1 下拉"
+    },
+    "R2": {
+      "value": "5.1k",
+      "mpn": "RC0402FR-075K1L",
+      "package": "0402",
+      "note": "USB-C CC2 下拉"
+    },
+    "R3": {
+      "value": "30k 1%",
+      "mpn": "RC0402FR-0730KL",
+      "package": "0402",
+      "note": "波形分压上臂"
+    },
+    "R4": {
+      "value": "10k 1%",
+      "mpn": "RC0402FR-0710KL",
+      "package": "0402",
+      "note": "波形分压下臂（分压比 1/4）"
+    },
+    "R5": {
+      "value": "10k",
+      "mpn": "RC0402FR-0710KL",
+      "package": "0402",
+      "note": "GPIO0 上拉，保证正常启动"
+    },
+    "R6": {
+      "value": "120R 1%",
+      "mpn": "RC0805FR-07120RL",
+      "package": "0805",
+      "note": "RS-485 终端电阻，经 JP1 接入"
+    },
+    "R7": {
+      "value": "10k",
+      "mpn": "RC0402FR-0710KL",
+      "package": "0402",
+      "note": "DE/RE 下拉：上电默认接收态"
+    },
+    "R8": {
+      "value": "1k",
+      "mpn": "RC0402FR-071KL",
+      "package": "0402",
+      "note": "电源指示灯限流"
+    },
+    "R9": {
+      "value": "1k",
+      "mpn": "RC0402FR-071KL",
+      "package": "0402",
+      "note": "状态 LED 限流"
+    },
+    "R10": {
+      "value": "10k",
+      "mpn": "RC0402FR-0710KL",
+      "package": "0402",
+      "note": "EN 上拉"
+    },
+    "R11": {
+      "value": "10k",
+      "mpn": "RC0402FR-0710KL",
+      "package": "0402",
+      "note": "背光 MOS 栅极下拉：GPIO 未初始化时不误亮"
+    },
+    "Q1": {
+      "value": "2N7002",
+      "mpn": "2N7002-7-F",
+      "package": "SOT-23",
+      "note": "背光低边开关（论文 4.4.1）"
+    },
+    "F1": {
+      "value": "PTC 0.5A/6V",
+      "mpn": "MF-MSMF050",
+      "package": "0805",
+      "note": "5V 输入自恢复保险"
+    },
+    "D1": {
+      "value": "LED 绿",
+      "mpn": "LTST-C191KGKT",
+      "package": "0603",
+      "note": "电源指示（常亮）"
+    },
+    "D2": {
+      "value": "LED 蓝",
+      "mpn": "LTST-C191TBKT",
+      "package": "0603",
+      "note": "运行状态，GPIO48"
+    },
+    "D3": {
+      "value": "SMBJ5.0A",
+      "mpn": "SMBJ5.0A",
+      "package": "SMB",
+      "note": "5V 输入 TVS"
+    },
+    "D4": {
+      "value": "SMBJ6.5CA",
+      "mpn": "SMBJ6.5CA",
+      "package": "SMB",
+      "note": "A 线 TVS"
+    },
+    "D5": {
+      "value": "SMBJ6.5CA",
+      "mpn": "SMBJ6.5CA",
+      "package": "SMB",
+      "note": "B 线 TVS"
+    },
+    "C1": {
+      "value": "10uF",
+      "mpn": "TAJA106K016RNJ",
+      "package": "1206 钽",
+      "note": "5V 输入储能"
+    },
+    "C2": {
+      "value": "100nF",
+      "mpn": "CL10B104KB8NNNC",
+      "package": "0402",
+      "note": "5V 输入高频去耦"
+    },
+    "C3": {
+      "value": "22uF",
+      "mpn": "TAJA226K010RNJ",
+      "package": "1206 钽",
+      "note": "3V3 输出储能，ESR 0.5Ω 满足 AMS1117 稳定要求"
+    },
+    "C4": {
+      "value": "100nF",
+      "mpn": "CL10B104KB8NNNC",
+      "package": "0402",
+      "note": "3V3 输出去耦"
+    },
+    "C5": {
+      "value": "100nF",
+      "mpn": "CL10B104KB8NNNC",
+      "package": "0402",
+      "note": "U1 VDD3P3 就近去耦"
+    },
+    "C6": {
+      "value": "100nF",
+      "mpn": "CL10B104KB8NNNC",
+      "package": "0402",
+      "note": "U1 VDD_SDIO 去耦"
+    },
+    "C7": {
+      "value": "100nF",
+      "mpn": "CL10B104KB8NNNC",
+      "package": "0402",
+      "note": "U2 VCC 去耦"
+    },
+    "C8": {
+      "value": "100nF",
+      "mpn": "CL10B104KB8NNNC",
+      "package": "0402",
+      "note": "U3 V3 去耦"
+    },
+    "C9": {
+      "value": "100nF",
+      "mpn": "CL10B104KB8NNNC",
+      "package": "0402",
+      "note": "U3 VCC 去耦"
+    },
+    "C10": {
+      "value": "1uF",
+      "mpn": "CL05A105KA5NQNC",
+      "package": "0402",
+      "note": "EN 上电延时"
+    }
   },
-
   "nets": {
-    "GND": [["J1", "GND"], ["J2", "3"], ["J3", "GND"], ["U1", "GND"], ["U2", "GND"], ["U3", "GND"], ["U4", "GND"], ["U5", "GND"],
-            ["SW1", "2"], ["SW2", "2"], ["SW3", "2"], ["SW4", "2"], ["SW5", "2"], ["SW6", "2"],
-            ["R1", "2"], ["R2", "2"], ["R4", "2"], ["R7", "2"], ["D1", "2"], ["D2", "2"],
-            ["D3", "2"], ["D4", "2"], ["D5", "2"], ["C1", "2"], ["C2", "2"], ["C3", "2"], ["C4", "2"],
-            ["C5", "2"], ["C6", "2"], ["C7", "2"], ["C8", "2"], ["C9", "2"], ["C10", "2"]],
-
-    "VBUS": [["J1", "VBUS"], ["F1", "1"], ["D3", "1"], ["C1", "1"], ["C2", "1"], ["U5", "VBUS"]],
-    "+5V": [["F1", "2"], ["U4", "VI"]],
-    "3V3": [["U4", "VO"], ["C3", "1"], ["C4", "1"], ["U1", "3V3"], ["U2", "VCC"], ["U3", "VCC"],
-            ["R5", "1"], ["R8", "1"], ["R10", "1"], ["C5", "1"], ["C7", "1"], ["C9", "1"]],
-    "V3_DECOUPLE": [["U3", "V3"], ["C8", "1"]],
-    "VDD_SDIO": [["U1", "VDD_SDIO"], ["C6", "1"]],
-    "EN": [["U1", "EN"], ["SW6", "1"], ["R10", "2"], ["C10", "1"]],
-
-    "USB_DP": [["J1", "DP1"], ["J1", "DP2"], ["U5", "I/O1"], ["U3", "UD+"]],
-    "USB_DM": [["J1", "DN1"], ["J1", "DN2"], ["U5", "I/O2"], ["U3", "UD-"]],
-
-    "UART0_TX": [["U1", "IO43"], ["U3", "RXD"]],
-    "UART0_RX": [["U1", "IO44"], ["U3", "TXD"]],
-
-    "RS485_TX": [["U1", "IO17"], ["U2", "DI"]],
-    "RS485_RX": [["U1", "IO18"], ["U2", "RO"]],
-    "RS485_DE": [["U1", "IO4"], ["U2", "DE"], ["U2", "RE"], ["R7", "1"]],
-    "RS485_A": [["J2", "1"], ["U2", "A"], ["D4", "1"], ["R3", "1"], ["JP1", "1"]],
-    "RS485_B": [["J2", "2"], ["U2", "B"], ["D5", "1"], ["R6", "2"]],
-    "TERM_A": [["JP1", "2"], ["R6", "1"]],
-
-    "ADC_IN": [["U1", "IO5"], ["R3", "2"], ["R4", "1"]],
-
-    "SPI_SCK": [["U1", "IO12"], ["J3", "SCK"]],
-    "SPI_MOSI": [["U1", "IO11"], ["J3", "MOSI"]],
-    "TFT_CS": [["U1", "IO10"], ["J3", "CS"]],
-    "TFT_DC": [["U1", "IO9"], ["J3", "DC"]],
-    "TFT_RST": [["U1", "IO8"], ["J3", "RST"]],
-    "TFT_BL": [["U1", "IO7"], ["J3", "LED"]],
-    "TOUCH_CS": [["U1", "IO46"], ["J3", "T_CS"]],
-    "TOUCH_IRQ": [["U1", "IO3"], ["J3", "T_IRQ"]],
-
-    "KEY_UP": [["U1", "IO1"], ["SW1", "1"]],
-    "KEY_DOWN": [["U1", "IO2"], ["SW2", "1"]],
-    "KEY_OK": [["U1", "IO42"], ["SW3", "1"]],
-    "KEY_BACK": [["U1", "IO41"], ["SW4", "1"]],
-    "BOOT": [["U1", "IO0"], ["SW5", "1"], ["R5", "2"]],
-
-    "LED_STATUS": [["U1", "IO48"], ["R9", "1"]],
-    "LED_STATUS_A": [["R9", "2"], ["D2", "1"]],
-    "LED_PWR": [["R8", "2"], ["D1", "1"]]
+    "GND": [
+      [
+        "J1",
+        "GND"
+      ],
+      [
+        "J2",
+        "3"
+      ],
+      [
+        "J3",
+        "GND"
+      ],
+      [
+        "U1",
+        "GND"
+      ],
+      [
+        "U2",
+        "GND"
+      ],
+      [
+        "U3",
+        "GND"
+      ],
+      [
+        "U4",
+        "GND"
+      ],
+      [
+        "U5",
+        "GND"
+      ],
+      [
+        "SW1",
+        "2"
+      ],
+      [
+        "SW2",
+        "2"
+      ],
+      [
+        "SW3",
+        "2"
+      ],
+      [
+        "SW4",
+        "2"
+      ],
+      [
+        "SW5",
+        "2"
+      ],
+      [
+        "SW6",
+        "2"
+      ],
+      [
+        "R1",
+        "2"
+      ],
+      [
+        "R2",
+        "2"
+      ],
+      [
+        "R4",
+        "2"
+      ],
+      [
+        "R7",
+        "2"
+      ],
+      [
+        "D1",
+        "2"
+      ],
+      [
+        "D2",
+        "2"
+      ],
+      [
+        "D3",
+        "2"
+      ],
+      [
+        "D4",
+        "2"
+      ],
+      [
+        "D5",
+        "2"
+      ],
+      [
+        "C1",
+        "2"
+      ],
+      [
+        "C2",
+        "2"
+      ],
+      [
+        "C3",
+        "2"
+      ],
+      [
+        "C4",
+        "2"
+      ],
+      [
+        "C5",
+        "2"
+      ],
+      [
+        "C6",
+        "2"
+      ],
+      [
+        "C7",
+        "2"
+      ],
+      [
+        "C8",
+        "2"
+      ],
+      [
+        "C9",
+        "2"
+      ],
+      [
+        "C10",
+        "2"
+      ],
+      [
+        "Q1",
+        "S"
+      ],
+      [
+        "R11",
+        "2"
+      ]
+    ],
+    "VBUS": [
+      [
+        "J1",
+        "VBUS"
+      ],
+      [
+        "F1",
+        "1"
+      ],
+      [
+        "D3",
+        "1"
+      ],
+      [
+        "C1",
+        "1"
+      ],
+      [
+        "C2",
+        "1"
+      ],
+      [
+        "U5",
+        "VBUS"
+      ]
+    ],
+    "+5V": [
+      [
+        "F1",
+        "2"
+      ],
+      [
+        "U4",
+        "VI"
+      ]
+    ],
+    "3V3": [
+      [
+        "U4",
+        "VO"
+      ],
+      [
+        "C3",
+        "1"
+      ],
+      [
+        "C4",
+        "1"
+      ],
+      [
+        "U1",
+        "3V3"
+      ],
+      [
+        "U2",
+        "VCC"
+      ],
+      [
+        "U3",
+        "VCC"
+      ],
+      [
+        "R5",
+        "1"
+      ],
+      [
+        "R8",
+        "1"
+      ],
+      [
+        "R10",
+        "1"
+      ],
+      [
+        "C5",
+        "1"
+      ],
+      [
+        "C7",
+        "1"
+      ],
+      [
+        "C9",
+        "1"
+      ]
+    ],
+    "V3_DECOUPLE": [
+      [
+        "U3",
+        "V3"
+      ],
+      [
+        "C8",
+        "1"
+      ]
+    ],
+    "VDD_SDIO": [
+      [
+        "U1",
+        "VDD_SDIO"
+      ],
+      [
+        "C6",
+        "1"
+      ]
+    ],
+    "EN": [
+      [
+        "U1",
+        "EN"
+      ],
+      [
+        "SW6",
+        "1"
+      ],
+      [
+        "R10",
+        "2"
+      ],
+      [
+        "C10",
+        "1"
+      ]
+    ],
+    "USB_DP": [
+      [
+        "J1",
+        "DP1"
+      ],
+      [
+        "J1",
+        "DP2"
+      ],
+      [
+        "U5",
+        "I/O1"
+      ],
+      [
+        "U3",
+        "UD+"
+      ]
+    ],
+    "USB_DM": [
+      [
+        "J1",
+        "DN1"
+      ],
+      [
+        "J1",
+        "DN2"
+      ],
+      [
+        "U5",
+        "I/O2"
+      ],
+      [
+        "U3",
+        "UD-"
+      ]
+    ],
+    "UART0_TX": [
+      [
+        "U1",
+        "IO43"
+      ],
+      [
+        "U3",
+        "RXD"
+      ]
+    ],
+    "UART0_RX": [
+      [
+        "U1",
+        "IO44"
+      ],
+      [
+        "U3",
+        "TXD"
+      ]
+    ],
+    "RS485_TX": [
+      [
+        "U1",
+        "IO17"
+      ],
+      [
+        "U2",
+        "DI"
+      ]
+    ],
+    "RS485_RX": [
+      [
+        "U1",
+        "IO18"
+      ],
+      [
+        "U2",
+        "RO"
+      ]
+    ],
+    "RS485_DE": [
+      [
+        "U1",
+        "IO4"
+      ],
+      [
+        "U2",
+        "DE"
+      ],
+      [
+        "U2",
+        "RE"
+      ],
+      [
+        "R7",
+        "1"
+      ]
+    ],
+    "RS485_A": [
+      [
+        "J2",
+        "1"
+      ],
+      [
+        "U2",
+        "A"
+      ],
+      [
+        "D4",
+        "1"
+      ],
+      [
+        "R3",
+        "1"
+      ],
+      [
+        "JP1",
+        "1"
+      ]
+    ],
+    "RS485_B": [
+      [
+        "J2",
+        "2"
+      ],
+      [
+        "U2",
+        "B"
+      ],
+      [
+        "D5",
+        "1"
+      ],
+      [
+        "R6",
+        "2"
+      ]
+    ],
+    "TERM_A": [
+      [
+        "JP1",
+        "2"
+      ],
+      [
+        "R6",
+        "1"
+      ]
+    ],
+    "ADC_IN": [
+      [
+        "U1",
+        "IO5"
+      ],
+      [
+        "R3",
+        "2"
+      ],
+      [
+        "R4",
+        "1"
+      ]
+    ],
+    "SPI_SCK": [
+      [
+        "U1",
+        "IO12"
+      ],
+      [
+        "J3",
+        "SCK"
+      ]
+    ],
+    "SPI_MOSI": [
+      [
+        "U1",
+        "IO11"
+      ],
+      [
+        "J3",
+        "MOSI"
+      ]
+    ],
+    "TFT_CS": [
+      [
+        "U1",
+        "IO10"
+      ],
+      [
+        "J3",
+        "CS"
+      ]
+    ],
+    "TFT_DC": [
+      [
+        "U1",
+        "IO9"
+      ],
+      [
+        "J3",
+        "DC"
+      ]
+    ],
+    "TFT_RST": [
+      [
+        "U1",
+        "IO8"
+      ],
+      [
+        "J3",
+        "RST"
+      ]
+    ],
+    "TFT_BL": [
+      [
+        "U1",
+        "IO7"
+      ],
+      [
+        "Q1",
+        "G"
+      ],
+      [
+        "R11",
+        "1"
+      ]
+    ],
+    "TOUCH_CS": [
+      [
+        "U1",
+        "IO46"
+      ],
+      [
+        "J3",
+        "T_CS"
+      ]
+    ],
+    "TOUCH_IRQ": [
+      [
+        "U1",
+        "IO3"
+      ],
+      [
+        "J3",
+        "T_IRQ"
+      ]
+    ],
+    "KEY_UP": [
+      [
+        "U1",
+        "IO1"
+      ],
+      [
+        "SW1",
+        "1"
+      ]
+    ],
+    "KEY_DOWN": [
+      [
+        "U1",
+        "IO2"
+      ],
+      [
+        "SW2",
+        "1"
+      ]
+    ],
+    "KEY_OK": [
+      [
+        "U1",
+        "IO42"
+      ],
+      [
+        "SW3",
+        "1"
+      ]
+    ],
+    "KEY_BACK": [
+      [
+        "U1",
+        "IO41"
+      ],
+      [
+        "SW4",
+        "1"
+      ]
+    ],
+    "BOOT": [
+      [
+        "U1",
+        "IO0"
+      ],
+      [
+        "SW5",
+        "1"
+      ],
+      [
+        "R5",
+        "2"
+      ]
+    ],
+    "LED_STATUS": [
+      [
+        "U1",
+        "IO48"
+      ],
+      [
+        "R9",
+        "1"
+      ]
+    ],
+    "LED_STATUS_A": [
+      [
+        "R9",
+        "2"
+      ],
+      [
+        "D2",
+        "1"
+      ]
+    ],
+    "LED_PWR": [
+      [
+        "R8",
+        "2"
+      ],
+      [
+        "D1",
+        "1"
+      ]
+    ],
+    "BLK_LED": [
+      [
+        "Q1",
+        "D"
+      ],
+      [
+        "J3",
+        "LED"
+      ]
+    ]
   }
 }

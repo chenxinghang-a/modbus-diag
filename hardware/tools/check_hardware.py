@@ -133,6 +133,8 @@ def main():
         ("U2", "RO", "RS485_RX"), ("U2", "DI", "RS485_TX"),
         ("U2", "DE", "RS485_DE"), ("U2", "RE", "RS485_DE"),
         ("U3", "UD+", "USB_DP"), ("U3", "UD-", "USB_DM"),
+        # 背光走 2N7002 低边开关（论文 4.4.1），不是 GPIO 直驱
+        ("Q1", "G", "TFT_BL"), ("Q1", "D", "BLK_LED"), ("J3", "LED", "BLK_LED"),
         ("U1", "IO19", None),  # 原生 USB 预留，不接 USB 连接器
     ]:
         if net is None:
