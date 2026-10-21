@@ -105,3 +105,26 @@ int frame_parser_to_string(const parsed_frame_t *frame, char *buf, size_t buf_si
                             frame->quantity_or_value);
     }
 }
+
+int frame_parser_to_hex(const uint8_t *data, uint16_t len, char *buf, size_t buf_size,
+                        int max_bytes)
+{
+    if (!buf || buf_size == 0) return -1;
+    buf[0] = '\0';
+    if (!data || len == 0) {
+        return snprintf(buf, buf_size, "(empty)");
+    }
+
+    int n = (max_bytes > 0 && len > max_bytes) ? max_bytes : (int)len;
+    int w = 0;
+    for (int i = 0; i < n; i++) {
+        int need = (i == 0) ? 2 : 3;
+        if ((size_t)(w + need) >= buf_size) return -1;   /* 放不下就明确失败，不写半截 */
+        w += snprintf(buf + w, buf_size - w, i ? " %02X" : "%02X", data[i]);
+    }
+    if (n < (int)len) {
+        if ((size_t)(w + 3) >= buf_size) return -1;
+        w += snprintf(buf + w, buf_size - w, " ..");
+    }
+    return w;
+}

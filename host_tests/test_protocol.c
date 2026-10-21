@@ -239,6 +239,32 @@ int main(void)
         check("115200 下至少 1750us（规范下限）", t115200 >= 1750, NULL);
     }
 
+    /* ---------- 十六进制视图（抓包页长按 OK 切换） ---------- */
+    printf("-- 原始字节转十六进制 --\n");
+    {
+        const uint8_t f[] = {0x01, 0x03, 0x04, 0x00, 0x01, 0x00, 0x02};
+        char buf[64];
+        int n = frame_parser_to_hex(f, sizeof(f), buf, sizeof(buf), 0);
+        check("完整输出", strcmp(buf, "01 03 04 00 01 00 02") == 0, buf);
+        check("返回长度正确", n == (int)strlen(buf), NULL);
+
+        frame_parser_to_hex(f, sizeof(f), buf, sizeof(buf), 3);
+        check("max_bytes=3 时截断并加 ..", strcmp(buf, "01 03 04 ..") == 0, buf);
+
+        frame_parser_to_hex(NULL, 0, buf, sizeof(buf), 0);
+        check("空帧显示 (empty)", strcmp(buf, "(empty)") == 0, buf);
+    }
+    {
+        const uint8_t f[] = {0xAA, 0xBB, 0xCC, 0xDD};
+        char small[7];                       /* 只放得下 "AA BB" (5) + NUL */
+        int n = frame_parser_to_hex(f, sizeof(f), small, sizeof(small), 0);
+        check("缓冲区不足时返回 -1（不写半截）", n == -1, NULL);
+
+        char okbuf[12];
+        check("刚好放得下 3 字节时成功",
+              frame_parser_to_hex(f, 3, okbuf, sizeof(okbuf), 0) > 0, okbuf);
+    }
+
     printf("\n合计: OK %d / FAIL %d\n", ok, bad);
     return bad ? 1 : 0;
 }

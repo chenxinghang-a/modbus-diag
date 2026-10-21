@@ -22,3 +22,9 @@ bool frame_parser_parse(const uint8_t *data, uint16_t len, parsed_frame_t *out);
 
 /* Get human-readable description of a parsed frame */
 int frame_parser_to_string(const parsed_frame_t *frame, char *buf, size_t buf_size);
+
+/* 原始字节转十六进制文本（现场排障要看得到真实字节）。
+ *   max_bytes  最多输出多少字节，超出以 " .." 截断；<=0 表示不限
+ * 返回写入长度（不含结尾 0）；buf 太小返回 -1。空帧输出 "(empty)"。 */
+int frame_parser_to_hex(const uint8_t *data, uint16_t len, char *buf, size_t buf_size,
+                        int max_bytes);

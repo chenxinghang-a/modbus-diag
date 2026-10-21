@@ -22,7 +22,7 @@ jobs:
       - name: 编译器版本
         run: gcc --version | head -1
 
-      - name: 协议 / TCP / 信号 / 报告 / 健康评分 / 流量统计（155 项断言 + 头文件自包含）
+      - name: 协议 / TCP / 信号 / 报告 / 健康评分 / 流量统计（161 项断言 + 头文件自包含）
         run: bash host_tests/run.sh
 
       - name: 模拟器自检（45 项断言）

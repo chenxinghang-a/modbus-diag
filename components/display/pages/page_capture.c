@@ -14,6 +14,7 @@
 static bool s_need_redraw = true;
 static bool s_capturing = false;
 static char s_msg[48];      /* 启动失败等提示，空串表示无 */
+static bool s_hex_view = false;   /* false=解析视图，true=原始字节视图（长按 OK 切换） */
 
 /* 最近帧的本地环形缓冲。
  *
@@ -133,12 +134,24 @@ static void capture_update(void)
         int idx = (s_recent_head - s_recent_count + i + RECENT_MAX) % RECENT_MAX;
         const captured_frame_t *f = &s_recent[idx];
         parsed_frame_t parsed;
-        if (!frame_parser_parse(f->data, f->len, &parsed)) {
+        bool parsed_ok = frame_parser_parse(f->data, f->len, &parsed);
+
+        /* 解不出的帧（短帧、CRC 错）在十六进制视图里**必须照样显示**：
+         * 现场最想看的恰恰是「这帧为什么不像正常报文」，把它藏起来等于掩盖线索。 */
+        if (!parsed_ok && !s_hex_view) {
             continue;
         }
-        char desc[48];
-        char line[64];
-        frame_parser_to_string(&parsed, desc, sizeof(desc));
+
+        char desc[64];
+        if (s_hex_view) {
+            /* 一行最多 13 字节：320px 宽、FONT_SMALL 约 53 字符 */
+            if (frame_parser_to_hex(f->data, f->len, desc, sizeof(desc), 13) < 0) {
+                snprintf(desc, sizeof(desc), "(too long)");
+            }
+        } else {
+            frame_parser_to_string(&parsed, desc, sizeof(desc));
+        }
+        char line[80];
         snprintf(line, sizeof(line), "%6lums %s", (unsigned long)f->uptime_ms, desc);
         uint16_t color = f->crc_valid ? THEME_FG : THEME_ERROR;
         tft_draw_string(10, y, line, color, THEME_BG, FONT_SMALL);
@@ -146,8 +159,11 @@ static void capture_update(void)
     }
 
     tft_draw_string(10, TFT_HEIGHT - 18,
-                    s_capturing ? "[OK] Stop  [BACK] Exit" : "[OK] Start [BACK] Exit",
+                    s_capturing ? "[OK]Stop [OK hold]Hex [BACK]Exit"
+                                : "[OK]Start [OK hold]Hex [BACK]Exit",
                     THEME_FG, THEME_BG, FONT_SMALL);
+    tft_draw_string(TFT_WIDTH - 52, TFT_HEIGHT - 18,
+                    s_hex_view ? "HEX" : "PARSED", THEME_ACCENT, THEME_BG, FONT_SMALL);
 
     if (s_msg[0]) {
         tft_draw_string(10, TFT_HEIGHT - 32, s_msg, THEME_ERROR, THEME_BG, FONT_SMALL);
@@ -174,6 +190,10 @@ static void capture_key(uint8_t key)
                     s_msg[0] = '\0';
                 }
             }
+            s_need_redraw = true;
+            break;
+        case 4: /* 长按 OK：切换 解析视图 / 原始字节视图 */
+            s_hex_view = !s_hex_view;
             s_need_redraw = true;
             break;
         case 3: /* BACK */
