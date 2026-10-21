@@ -78,6 +78,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import threading
 import time
@@ -480,7 +481,10 @@ def main() -> int:
     ap.add_argument("--bytesize", type=int, default=8, choices=[7, 8], help="RTU 数据位，默认 8")
     args = ap.parse_args()
 
-    cfg_path = args.config or str(__file__.rsplit("\\", 1)[0]) + "\\devices.json"
+    # 不能写死 "\\"：Linux/CI 上 __file__ 里没有反斜杠，拼出来会变成
+    # ".../modbus_sim.py\\devices.json" 这种文件，启动直接 FileNotFoundError。
+    cfg_path = args.config or os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                           "devices.json")
     with open(cfg_path, "r", encoding="utf-8") as f:
         cfg = json.load(f)
 
