@@ -61,6 +61,10 @@ esp_err_t modbus_master_configure(const modbus_config_t *cfg)
     esp_err_t ret = uart_param_config(RS485_UART_NUM, &uart_cfg);
     if (ret != ESP_OK) return ret;
 
+    /* 同一套超时也要喂给 TCP 路径：否则 TCP 模式一直用连接时写死的 2 秒，
+     * 扫描时每个空地址都要等满 2 秒。 */
+    modbus_tcp_set_timeout(s_cfg.timeout_ms);
+
     ESP_LOGI(TAG, "Configured: %lu baud, %d%c%d",
              (unsigned long)s_cfg.baud_rate, s_cfg.data_bits,
              s_cfg.parity == 1 ? 'O' : s_cfg.parity == 2 ? 'E' : 'N',

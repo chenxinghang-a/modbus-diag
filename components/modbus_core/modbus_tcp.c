@@ -13,7 +13,13 @@ static const char *TAG = "modbus_tcp";
 
 static int s_sock = -1;
 static uint16_t s_trans_id = 0;
+static uint32_t s_timeout_ms = 2000;   /* 由 modbus_master_configure() 按配置覆盖 */
 static SemaphoreHandle_t s_sock_mutex = NULL;
+
+void modbus_tcp_set_timeout(uint32_t ms)
+{
+    if (ms > 0) s_timeout_ms = ms;
+}
 
 esp_err_t modbus_tcp_init(void)
 {
@@ -57,7 +63,6 @@ esp_err_t modbus_tcp_connect(const char *ip, uint16_t port)
     struct timeval tv = { .tv_sec = 2, .tv_usec = 0 };
     setsockopt(s_sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     setsockopt(s_sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-
     if (connect(s_sock, (struct sockaddr *)&dest, sizeof(dest)) < 0) {
         ESP_LOGE(TAG, "Connect to %s:%d failed", ip, port);
         close(s_sock);
@@ -157,7 +162,7 @@ int modbus_tcp_build_frame(uint16_t trans_id, const modbus_request_t *req,
 }
 
 modbus_err_t modbus_tcp_parse_frame(const uint8_t *frame, uint16_t frame_len,
-                                    modbus_response_t *resp)
+                                    modbus_response_t *resp, uint16_t expected_tid)
 {
     if (!frame || !resp || frame_len < MBAP_HEADER_LEN + 1) {
         return MODBUS_ERR_INVALID_RESPONSE;
@@ -168,6 +173,9 @@ modbus_err_t modbus_tcp_parse_frame(const uint8_t *frame, uint16_t frame_len,
     uint16_t proto_id = (frame[2] << 8) | frame[3];
     uint16_t pdu_len = (frame[4] << 8) | frame[5];
 
+    /* 事务号必须对上：上一次超时请求的迟到响应如果被当成这次的答案，
+     * 界面会显示出「另一个请求的数据」，比超时更难查。 */
+    if (trans_id != expected_tid) return MODBUS_ERR_INVALID_RESPONSE;
     if (proto_id != 0x0000) return MODBUS_ERR_INVALID_RESPONSE;
     if (pdu_len > frame_len - 6) return MODBUS_ERR_INVALID_RESPONSE;
 
@@ -234,8 +242,20 @@ modbus_err_t modbus_tcp_send_recv(const modbus_request_t *req, modbus_response_t
     struct timeval tv_start, tv_end;
     gettimeofday(&tv_start, NULL);
 
+    /* 每次请求按当前配置超时重设一次：扫描时是 50ms，逐点读写是用户设的值。
+     * 不这么做就只能用连接时的固定 2s —— 扫 247 个地址光等超时要 8 分钟。 */
+    struct timeval to = { .tv_sec = s_timeout_ms / 1000,
+                          .tv_usec = (s_timeout_ms % 1000) * 1000 };
+    setsockopt(s_sock, SOL_SOCKET, SO_RCVTIMEO, &to, sizeof(to));
+    setsockopt(s_sock, SOL_SOCKET, SO_SNDTIMEO, &to, sizeof(to));
+
     int sent = send(s_sock, tx_buf, tx_len, 0);
     if (sent != tx_len) {
+        /* 发送失败就把 socket 关掉、置 -1：否则 modbus_tcp_is_connected() 永远为真，
+         * 上层（扫描/读写）会一直往死连接上发，还退不回 RS-485。
+         * 注意这里在 s_sock_mutex 内部，不能调 modbus_tcp_disconnect()（它会再取锁）。 */
+        close(s_sock);
+        s_sock = -1;
         xSemaphoreGive(s_sock_mutex);
         return MODBUS_ERR_IO;
     }
@@ -247,11 +267,14 @@ modbus_err_t modbus_tcp_send_recv(const modbus_request_t *req, modbus_response_t
                               (tv_end.tv_usec - tv_start.tv_usec);
 
     if (rx_len <= 0) {
+        /* 对端断开/超时：同样关掉连接，让上层自动退回 RS-485 */
+        close(s_sock);
+        s_sock = -1;
         xSemaphoreGive(s_sock_mutex);
         return MODBUS_ERR_TIMEOUT;
     }
 
-    modbus_err_t result = modbus_tcp_parse_frame(rx_buf, rx_len, resp);
+    modbus_err_t result = modbus_tcp_parse_frame(rx_buf, rx_len, resp, tid);
     xSemaphoreGive(s_sock_mutex);
     return result;
 }
