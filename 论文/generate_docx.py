@@ -61,7 +61,69 @@ def create_document():
     pf.space_before = Pt(0)
     pf.space_after = Pt(0)
 
+    add_page_number(section)
     return doc
+
+
+def _field(paragraph, instr, placeholder=""):
+    """往段落里塞一个 Word 域（TOC / PAGE 等）。"""
+    from docx.oxml import OxmlElement
+    run = paragraph.add_run()
+    fld_begin = OxmlElement('w:fldChar')
+    fld_begin.set(qn('w:fldCharType'), 'begin')
+    instr_el = OxmlElement('w:instrText')
+    instr_el.set(qn('xml:space'), 'preserve')
+    instr_el.text = instr
+    fld_sep = OxmlElement('w:fldChar')
+    fld_sep.set(qn('w:fldCharType'), 'separate')
+    txt = OxmlElement('w:t')
+    txt.text = placeholder
+    fld_end = OxmlElement('w:fldChar')
+    fld_end.set(qn('w:fldCharType'), 'end')
+    run._r.append(fld_begin)
+    run._r.append(instr_el)
+    run._r.append(fld_sep)
+    run._r.append(txt)
+    run._r.append(fld_end)
+    run.font.name = FONT_BODY
+    run.font.size = Pt(10.5)
+    run._element.rPr.rFonts.set(qn('w:eastAsia'), FONT_BODY)
+
+
+def add_page_number(section):
+    """页脚居中页码。"""
+    p = section.footer.paragraphs[0]
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run_note = p.add_run("— ")
+    run_note.font.name = FONT_BODY
+    run_note.font.size = Pt(10.5)
+    _field(p, "PAGE", "1")
+    tail = p.add_run(" —")
+    tail.font.name = FONT_BODY
+    tail.font.size = Pt(10.5)
+
+
+def add_toc(doc):
+    """插入「目录」页：标题 + TOC 域（打开 Word 后按 F9 更新页码）。"""
+    doc.add_page_break()
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.add_run("目  录")
+    run.font.name = FONT_TITLE
+    run.font.size = SIZE_H1
+    run.bold = True
+    run._element.rPr.rFonts.set(qn('w:eastAsia'), FONT_TITLE)
+
+    hint = doc.add_paragraph()
+    hint.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r = hint.add_run("（在 Word 中右键此处 → 更新域，即生成带页码的目录）")
+    r.font.name = FONT_BODY
+    r.font.size = Pt(9)
+    r.font.color.rgb = RGBColor(0x80, 0x80, 0x80)
+    r._element.rPr.rFonts.set(qn('w:eastAsia'), FONT_BODY)
+
+    _field(doc.add_paragraph(), 'TOC \\o "1-3" \\h \\z \\u', "右键→更新域，生成目录")
+    doc.add_page_break()
 
 def add_cover_page(doc):
     """添加封面页"""
@@ -137,6 +199,14 @@ def add_heading(doc, text, level=1):
     run.bold = True
     p.paragraph_format.space_before = Pt(12)
     p.paragraph_format.space_after = Pt(6)
+
+    # 手动排版不走 Heading 样式，但目录域要靠「大纲级别」收集条目 ——
+    # 不设 outlineLvl 的话，Word 里更新域会得到一个空目录。
+    from docx.oxml import OxmlElement
+    pPr = p._p.get_or_add_pPr()
+    olvl = OxmlElement('w:outlineLvl')
+    olvl.set(qn('w:val'), str(level - 1))
+    pPr.append(olvl)
     return p
 
 def add_body_text(doc, text, indent=True):
@@ -286,6 +356,13 @@ def parse_markdown_and_build(doc, md_path):
             flush_text()
             continue
 
+        # 目录占位
+        if line.strip() == '<!--TOC-->':
+            flush_text()
+            flush_table()
+            add_toc(doc)
+            continue
+
         # 标题
         if line.startswith('# '):
             flush_text()
@@ -293,11 +370,18 @@ def parse_markdown_and_build(doc, md_path):
             # 跳过文档主标题（已在封面）
             if '基于ESP32-S3' in title:
                 continue
+            if title.startswith('第') and '章' in title:
+                doc.add_page_break()          # 每章另起一页
             add_heading(doc, title, 1)
             continue
         if line.startswith('## '):
             flush_text()
-            add_heading(doc, line[3:].strip(), 2)
+            h2 = line[3:].strip()
+            if h2 in ('参考文献', '致谢', '附录', '中文摘要', 'Abstract'):
+                doc.add_page_break()          # 这几部分各自另起一页，且按一级标题进目录
+                add_heading(doc, h2, 1)
+            else:
+                add_heading(doc, h2, 2)
             continue
         if line.startswith('### '):
             flush_text()
