@@ -13,6 +13,7 @@
 
 static bool s_need_redraw = true;
 static bool s_capturing = false;
+static char s_msg[48];      /* 启动失败等提示，空串表示无 */
 
 /* 最近帧的本地环形缓冲。
  *
@@ -56,7 +57,6 @@ static void capture_exit(void)
 static void capture_update(void)
 {
     if (!s_need_redraw && !s_capturing) return;
-    s_need_redraw = false;
 
     if (s_capturing) {
         /* FPS/bps 只在 traffic_stats_tick() 里结算，而全工程没人调它 → 页面上
@@ -89,6 +89,16 @@ static void capture_update(void)
             }
         }
     }
+
+    /* 限帧：抓包时每次 update 都整屏重绘一次（50fps × 320×240×2B ≈ 7.5MB/s），
+     * 已经超过 40MHz SPI 的实际吞吐 —— UI 任务会一直堵在 SPI 传输上，按键发涩。
+     * 数据变化用不着 50fps，限到 10fps。
+     * 注意：取帧在上面做完了，限的只是「画」。 */
+    static TickType_t s_last_draw = 0;
+    TickType_t now_ms = xTaskGetTickCount();
+    if (!s_need_redraw && (now_ms - s_last_draw) < pdMS_TO_TICKS(100)) return;
+    s_last_draw = now_ms;
+    s_need_redraw = false;
 
     tft_fill_screen(THEME_BG);
     ui_status_bar_draw("Packet Capture", false, s_capturing);
@@ -138,6 +148,10 @@ static void capture_update(void)
     tft_draw_string(10, TFT_HEIGHT - 18,
                     s_capturing ? "[OK] Stop  [BACK] Exit" : "[OK] Start [BACK] Exit",
                     THEME_FG, THEME_BG, FONT_SMALL);
+
+    if (s_msg[0]) {
+        tft_draw_string(10, TFT_HEIGHT - 32, s_msg, THEME_ERROR, THEME_BG, FONT_SMALL);
+    }
 }
 
 static void capture_key(uint8_t key)
@@ -147,9 +161,18 @@ static void capture_key(uint8_t key)
             if (s_capturing) {
                 packet_capture_stop();
                 s_capturing = false;
+                s_msg[0] = '\0';
             } else {
-                packet_capture_start();
-                s_capturing = true;
+                /* 启动可能失败（UART 正被 Modbus 主站占用）。原实现忽略返回值、
+                 * 照样把 s_capturing 置 true —— 界面显示「正在抓包」但帧数永远 0，
+                 * 用户会以为总线没数据。 */
+                esp_err_t err = packet_capture_start();
+                s_capturing = (err == ESP_OK);
+                if (err != ESP_OK) {
+                    snprintf(s_msg, sizeof(s_msg), "Start failed (%d): UART busy?", (int)err);
+                } else {
+                    s_msg[0] = '\0';
+                }
             }
             s_need_redraw = true;
             break;
