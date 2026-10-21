@@ -13,6 +13,7 @@ static int s_selected = 0;
 
 static const char *s_menu_labels[] = {
     "Baud Rate",
+    "Frame",
     "Timeout (ms)",
     "Retry Count",
     "AP Name",
@@ -23,6 +24,18 @@ static ui_menu_t s_menu;
 static int s_baud_idx = 0;
 static const uint32_t s_baud_rates[] = {1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200};
 static const int s_baud_count = sizeof(s_baud_rates) / sizeof(s_baud_rates[0]);
+
+/* 帧格式：现场大多数仪表是 8E1/8O1，只支持 8N1 等于连不上 ——
+ * FR10 要求数据位、停止位、校验方式都可配且掉电不丢。数据位固定 8（Modbus 规范里也是 8）。 */
+typedef struct { const char *label; uint8_t parity; uint8_t stop_bits; } frame_fmt_t;
+static const frame_fmt_t s_frames[] = {
+    {"8N1", 0, 1},
+    {"8E1", 2, 1},
+    {"8O1", 1, 1},
+    {"8N2", 0, 2},
+};
+static const int s_frame_count = sizeof(s_frames) / sizeof(s_frames[0]);
+static int s_frame_idx = 0;
 
 /* 超时也是可配的：扫描器用它当单地址超时，直接决定扫描耗时（现场调试要能调）。
  * 原来这一项在菜单里摆着、按 OK 什么都不发生。 */
@@ -48,6 +61,14 @@ static void settings_enter(void)
     nvs_config_get_u32("baud", &baud, 9600);
     for (int i = 0; i < s_baud_count; i++) {
         if (s_baud_rates[i] == baud) { s_baud_idx = i; break; }
+    }
+
+    /* Load saved frame format */
+    uint32_t par = 0, sb = 1;
+    nvs_config_get_u32("parity", &par, 0);
+    nvs_config_get_u32("stop_bits", &sb, 1);
+    for (int i = 0; i < s_frame_count; i++) {
+        if (s_frames[i].parity == par && s_frames[i].stop_bits == sb) { s_frame_idx = i; break; }
     }
 
     /* Load saved timeout */
@@ -83,22 +104,26 @@ static void settings_update(void)
     snprintf(buf, sizeof(buf), "%lu", (unsigned long)s_baud_rates[s_baud_idx]);
     ui_list_item_draw(20, 30, TFT_WIDTH - 40, "Baud Rate", buf, s_selected == 0);
 
-    /* 第二项：超时（原来只有标签没有值，按 OK 也不响应） */
-    snprintf(buf, sizeof(buf), "%lu ms", (unsigned long)s_timeouts[s_timeout_idx]);
-    ui_list_item_draw(20, 30 + MENU_ITEM_H, TFT_WIDTH - 40, "Timeout (ms)", buf,
-                      s_selected == 1);
+    /* 第二项：帧格式 8N1/8E1/8O1/8N2（FR10） */
+    ui_list_item_draw(20, 30 + MENU_ITEM_H, TFT_WIDTH - 40, "Frame",
+                      s_frames[s_frame_idx].label, s_selected == 1);
 
-    /* 第三项：重试次数（FR1 要求可配置） */
-    snprintf(buf, sizeof(buf), "%u", (unsigned)s_retries[s_retry_idx]);
-    ui_list_item_draw(20, 30 + 2 * MENU_ITEM_H, TFT_WIDTH - 40, "Retry Count", buf,
+    /* 第三项：超时（原来只有标签没有值，按 OK 也不响应） */
+    snprintf(buf, sizeof(buf), "%lu ms", (unsigned long)s_timeouts[s_timeout_idx]);
+    ui_list_item_draw(20, 30 + 2 * MENU_ITEM_H, TFT_WIDTH - 40, "Timeout (ms)", buf,
                       s_selected == 2);
+
+    /* 第四项：重试次数（FR1 要求可配置） */
+    snprintf(buf, sizeof(buf), "%u", (unsigned)s_retries[s_retry_idx]);
+    ui_list_item_draw(20, 30 + 3 * MENU_ITEM_H, TFT_WIDTH - 40, "Retry Count", buf,
+                      s_selected == 3);
 
     /* 第四项：只读信息。原来的 "WiFi SSID" 按 OK 什么都不发生、也没有输入界面，
      * 是个空承诺；改成显示当前 AP 名称，"About" 同理只显示版本。 */
-    ui_list_item_draw(20, 30 + 3 * MENU_ITEM_H, TFT_WIDTH - 40, "AP Name",
-                      WIFI_AP_SSID, s_selected == 3);
-    ui_list_item_draw(20, 30 + 4 * MENU_ITEM_H, TFT_WIDTH - 40, "About",
-                      "v1.0.0", s_selected == 4);
+    ui_list_item_draw(20, 30 + 4 * MENU_ITEM_H, TFT_WIDTH - 40, "AP Name",
+                      WIFI_AP_SSID, s_selected == 4);
+    ui_list_item_draw(20, 30 + 5 * MENU_ITEM_H, TFT_WIDTH - 40, "About",
+                      "v1.0.0", s_selected == 5);
 
     tft_draw_string(20, TFT_HEIGHT - 18,
                     "[UP/DN] Navigate  [OK] Change  [BACK] Exit",
@@ -137,6 +162,18 @@ static void settings_key(uint8_t key)
                 log_storage_logf("config: baud=%lu (saved to NVS)",
                                  (unsigned long)cfg.baud_rate);
             } else if (s_selected == 1) {
+                /* Cycle 帧格式：现场 8E1/8O1 设备占很大比例，只给 8N1 等于连不上 */
+                s_frame_idx = (s_frame_idx + 1) % s_frame_count;
+                nvs_config_set_u32("parity", s_frames[s_frame_idx].parity);
+                nvs_config_set_u32("stop_bits", s_frames[s_frame_idx].stop_bits);
+
+                modbus_config_t cfg;
+                modbus_master_get_config(&cfg);
+                cfg.parity = s_frames[s_frame_idx].parity;
+                cfg.stop_bits = s_frames[s_frame_idx].stop_bits;
+                modbus_master_configure(&cfg);
+                log_storage_logf("config: frame=%s (saved to NVS)", s_frames[s_frame_idx].label);
+            } else if (s_selected == 2) {
                 /* Cycle timeout：扫描的单地址超时直接用它 */
                 s_timeout_idx = (s_timeout_idx + 1) % s_timeout_count;
                 nvs_config_set_u32("timeout_ms", s_timeouts[s_timeout_idx]);
@@ -147,7 +184,7 @@ static void settings_key(uint8_t key)
                 modbus_master_configure(&cfg);
                 log_storage_logf("config: timeout=%lu ms (saved to NVS)",
                                  (unsigned long)cfg.timeout_ms);
-            } else if (s_selected == 2) {
+            } else if (s_selected == 3) {
                 /* Cycle retry count：影响超时/CRC 错时的重发次数 */
                 s_retry_idx = (s_retry_idx + 1) % s_retry_count;
                 nvs_config_set_u32("retry_count", s_retries[s_retry_idx]);
