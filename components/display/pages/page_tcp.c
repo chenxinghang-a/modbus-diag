@@ -15,6 +15,8 @@ static bool s_connected = false;
 static char s_ip[32] = "192.168.1.100";
 static uint16_t s_port = 502;
 static int s_octet = 100;   /* IP 末段，UP/DN 调它（4 键机身上没法逐位编辑） */
+static char s_msg[48];      /* 最近一次操作结果 */
+static bool s_msg_err = false;
 
 /* 只改最后一段：现场多数情况是「同网段换一台设备」，
  * 把光标移到任意八位组需要左右键，本机只有 UP/DN/OK/BACK 四键。 */
@@ -53,6 +55,16 @@ static void tcp_exit(void)
 
 static void tcp_update(void)
 {
+    /* 连接状态以底层为准。
+     * s_connected 只是本页的副本，而 modbus_tcp_send_recv 在收发失败时会关闭 socket
+     * （否则会一直往死连接上发）—— 不同步的话，链路断了界面还显示 CONNECTED。 */
+    if (s_connected && !modbus_tcp_is_connected()) {
+        s_connected = false;
+        snprintf(s_msg, sizeof(s_msg), "Link dropped by peer");
+        s_msg_err = true;
+        log_storage_logf("tcp: link dropped");
+        s_need_redraw = true;
+    }
     if (!s_need_redraw) return;
     s_need_redraw = false;
 
@@ -72,6 +84,10 @@ static void tcp_update(void)
 
         tft_draw_string(20, 120, "[OK] Read Test", THEME_HIGHLIGHT, THEME_BG, FONT_NORMAL);
         tft_draw_string(20, 140, "[BACK] Disconnect", THEME_FG, THEME_BG, FONT_NORMAL);
+        if (s_msg[0]) {
+            tft_draw_string(20, 165, s_msg, s_msg_err ? THEME_ERROR : THEME_SUCCESS,
+                            THEME_BG, FONT_SMALL);
+        }
     } else {
         tft_draw_string(20, 80, "Status: DISCONNECTED", THEME_ERROR, THEME_BG, FONT_NORMAL);
         tft_draw_string(20, 110, "[OK] Connect", THEME_HIGHLIGHT, THEME_BG, FONT_NORMAL);
@@ -86,6 +102,8 @@ static void tcp_key(uint8_t key)
             if (!s_connected) {
                 esp_err_t ret = modbus_tcp_connect(s_ip, s_port);
                 s_connected = (ret == ESP_OK);
+                snprintf(s_msg, sizeof(s_msg), s_connected ? "Connected" : "Connect failed");
+                s_msg_err = !s_connected;
                 if (s_connected) {
                     /* 连上了才值得记：连不上的地址不覆盖上次可用的 */
                     nvs_config_set_str("tcp_ip", s_ip);
@@ -102,7 +120,19 @@ static void tcp_key(uint8_t key)
                     .quantity = 1,
                 };
                 modbus_response_t resp = {0};
-                modbus_tcp_send_recv(&req, &resp);
+                /* 返回值不能丢：失败时 response_time_us 是 recv 超时的 2s，
+                 * 直接显示会让人以为「从站慢」，其实是根本没连上/没回。 */
+                modbus_err_t err = modbus_tcp_send_recv(&req, &resp);
+                if (err == MODBUS_OK) {
+                    snprintf(s_msg, sizeof(s_msg), "Read OK, %ld us",
+                             (long)resp.response_time_us);
+                    s_msg_err = false;
+                } else {
+                    snprintf(s_msg, sizeof(s_msg), "Read failed (err=%d)", (int)err);
+                    s_msg_err = true;
+                    s_connected = modbus_tcp_is_connected();
+                }
+                log_storage_logf("tcp read test -> err=%d", (int)err);
             }
             s_need_redraw = true;
             break;

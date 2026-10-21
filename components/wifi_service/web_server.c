@@ -10,14 +10,16 @@ static httpd_handle_t s_server = NULL;
 
 static esp_err_t root_handler(httpd_req_t *req)
 {
+    /* 原来这里还列了一个 /data「Export data」—— 该接口从未实现，点进去是 404。
+     * 对外页面只列真实存在的接口，免得用户以为设备坏了。 */
     const char *html = "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+                       "<meta name='viewport' content='width=device-width'>"
                        "<title>Modbus Diag</title></head><body>"
                        "<h1>Modbus Diagnostic Tool</h1>"
                        "<p>API endpoints:</p>"
                        "<ul>"
-                       "<li><a href='/report'>/report</a> - Diagnostic report</li>"
+                       "<li><a href='/report'>/report</a> - Diagnostic report (HTML, JSON)</li>"
                        "<li><a href='/log'>/log</a> - Operation log</li>"
-                       "<li><a href='/data'>/data</a> - Export data</li>"
                        "</ul>"
                        "</body></html>";
     httpd_resp_set_type(req, "text/html");
