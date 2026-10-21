@@ -87,7 +87,6 @@ cd sim && python test_sim.py
 ## 从站模拟器
 
 没有板子也没有从站时，用它代替真实设备：
-
 ```bash
 python -m venv .venv
 .venv/Scripts/python.exe -m pip install -r sim/requirements.txt
@@ -97,6 +96,12 @@ python -m venv .venv
 
 支持按 `unit + 寄存器类型 + 地址` 精确注入异常码、延迟与网关类异常（0x0A/0x0B），
 用于验证诊断逻辑。详见 `sim/README.md`。
+
+## 上板验证
+
+主机测试和模拟器覆盖不到的部分 —— UI 布局、长按手感、RS-485 电气层、TCP 断线回退、
+波形测量精度 —— 需要实物板。首次上板请按 **[`docs/上板验证清单.md`](docs/上板验证清单.md)**
+逐项走一遍：每项都写了预期结果和「不符时先查什么」，最后一节是最容易出问题的五个点。
 
 ## 已知限制
 
