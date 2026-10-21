@@ -119,10 +119,12 @@ esp_err_t device_scan_start(const scan_config_t *cfg, scan_result_t *result)
             if (cfg->on_progress) {
                 cfg->on_progress(step, total_steps, cfg->user_data);
             }
-            /* 论文 5.5 把「事件总线」写成架构支柱，还点名扫描进度走
-             * APP_EVT_SCAN_PROGRESS / SCAN_DONE —— 实际只调了回调，事件从没发过。
-             * 事件只带标量（arg），不塞 device_info 指针，避免指向调用方栈上的临时量。 */
-            app_event_post(APP_EVT_SCAN_PROGRESS, (uint32_t)step, NULL);
+            /* 这里原来每扫一个地址就 post 一次 APP_EVT_SCAN_PROGRESS —— 两个问题：
+             * ① 全工程没有订阅者，纯属往队列里灌垃圾；
+             * ② 事件队列只有 32 格，扫描 247 个地址会把队列瞬间打满，
+             *    按键事件被挤掉，扫描期间按 BACK 取消会失灵。
+             * 进度本来就靠 on_progress 回调直接写变量给 UI 轮询（要的是最新值，
+             * 不是一串积压的历史），所以这里不发事件。 */
 
             /* Try reading holding register 0, count 1 */
             uint16_t values[1];
@@ -147,7 +149,7 @@ esp_err_t device_scan_start(const scan_config_t *cfg, scan_result_t *result)
                     if (cfg->on_device_found) {
                         cfg->on_device_found(dev, cfg->user_data);
                     }
-                    app_event_post(APP_EVT_SCAN_DEVICE_FOUND, (uint32_t)addr, NULL);
+                    /* 同上：发现设备的通知走 on_device_found 回调，不进事件队列 */
                 }
             }
         }

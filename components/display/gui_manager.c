@@ -57,6 +57,21 @@ esp_err_t gui_manager_init(void)
      * 事件发出来没人接，长按等于没反应（论文 5.x 却写了「长按用于功能扩展」）。 */
     app_event_register(APP_EVT_KEY_OK_LONG, key_event_handler);
 
+    /* 启动自检：把没注册的页面点出来。构造函数注册是隐式的，
+     * 少一个不会有编译错误，只会在现场表现为"点进去没反应"。 */
+    {
+        int missing = 0;
+        for (int i = 0; i < PAGE_MAX; i++) {
+            if (!s_pages[i]) {
+                ESP_LOGE(TAG, "page %d not registered!", i);
+                missing++;
+            }
+        }
+        if (missing == 0) {
+            ESP_LOGI(TAG, "all %d pages registered", (int)PAGE_MAX);
+        }
+    }
+
     /* Enter home page */
     if (s_pages[PAGE_HOME] && s_pages[PAGE_HOME]->on_enter) {
         s_pages[PAGE_HOME]->on_enter();
@@ -69,6 +84,14 @@ esp_err_t gui_manager_init(void)
 void gui_manager_goto(page_id_t page)
 {
     if (page >= PAGE_MAX || page == s_current) return;
+
+    /* 目标页没注册就别切：除首页外的页面都靠 __attribute__((constructor)) 自动注册，
+     * 一旦某个页面漏注册（或新增了枚举没写页面），切过去会留下上一页的残影、
+     * 按键还全无响应 —— 用户会以为死机。宁可不切并打日志。 */
+    if (!s_pages[page]) {
+        ESP_LOGE(TAG, "goto page %d failed: not registered", (int)page);
+        return;
+    }
 
     /* Push current to stack, drop oldest if full */
     if (s_stack_top >= 8) {
