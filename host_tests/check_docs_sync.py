@@ -52,8 +52,15 @@ def main():
     # 后面的 fallback 根本不会执行。改成在 Python 里依次尝试。
     sim_out = ""
     for exe in (".venv/Scripts/python.exe", ".venv/bin/python", "python3", "python"):
-        r = subprocess.run([exe, "sim/test_sim.py"], cwd=ROOT, capture_output=True,
-                           text=True, encoding="utf-8", errors="replace")
+        # subprocess 遇到不存在的可执行文件会直接抛 FileNotFoundError
+        # （不像 shell 那样返回非零码），必须显式跳过。
+        if os.sep in exe and not os.path.exists(os.path.join(ROOT, exe)):
+            continue
+        try:
+            r = subprocess.run([exe, "sim/test_sim.py"], cwd=ROOT, capture_output=True,
+                               text=True, encoding="utf-8", errors="replace")
+        except (FileNotFoundError, PermissionError):
+            continue
         if r.stdout and "合计" in r.stdout:
             sim_out = r.stdout
             break
