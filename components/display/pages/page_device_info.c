@@ -5,6 +5,7 @@
 #include "register_classifier.h"
 #include "device_scanner.h"
 #include "log_storage.h"
+#include "ui_edit.h"
 #include "modbus_master.h"
 #include <stdio.h>
 #include <string.h>
@@ -18,13 +19,13 @@ static bool s_classifying = false;
  * 原来这一页只读不写，FC05/06 在 UI 上根本没有入口（论文 FR 里却列了写功能码）。 */
 static int  s_cursor = 0;          /* 可写寄存器组里的序号 */
 static bool s_edit = false;
-static int  s_digit = 0;           /* 编辑态：当前在改第几位（0=万位） */
-static uint16_t s_edit_val = 0;
+static ui_edit_t s_editor;        /* 逐位编辑状态机（逻辑在 ui_edit.c，有主机测试） */
+static uint16_t s_edit_val = 0;   /* 编辑值：提交时从状态机取出，写操作读它 */
 static char s_msg[48] = "";
 static bool s_msg_err = false;
 static bool s_batch = false;       /* 编辑态：true 表示「批量填充」而不是单点写 */
 
-static const uint16_t k_pow10[5] = {10000, 1000, 100, 10, 1};
+
 
 static const char *reg_type_str[] = {"Coil", "DiscInp", "Holding", "Input"};
 
@@ -172,8 +173,9 @@ static void dev_update(void)
         }
         tft_draw_string(10, 140, buf, THEME_HIGHLIGHT, THEME_BG, FONT_SMALL);
         for (int i = 0; i < 5; i++) {
-            int d = (s_edit_val / k_pow10[i]) % 10;
-            ui_num_input_draw(10 + i * 16, 152, d, 1, (i == s_digit),
+            int d = (s_edit_val / ui_edit_pow10(i)) % 10;
+            ui_num_input_draw(10 + i * 16, 152, d, 1,
+                              (i == ui_edit_cursor(&s_editor)),
                               THEME_HIGHLIGHT, THEME_BG);
         }
     } else if (s_msg[0]) {
@@ -287,41 +289,20 @@ static void dev_key(uint8_t key)
     int gi = group_at_cursor(s_cursor);
     uint16_t addr = (gi >= 0) ? s_dev.reg_groups[gi].start_addr : 0;
 
-    /* ---------- 编辑态：逐位改数字 ---------- */
+    /* ---------- 编辑态：逐位改数字（逻辑在 ui_edit.c，主机测试覆盖） ---------- */
     if (s_edit) {
-        int cur = (s_edit_val / k_pow10[s_digit]) % 10;
-        int nd = cur;
-
-        switch (key) {
-            case 0:  /* UP：当前位 +1 */
-                nd = (cur + 1) % 10;
-                break;
-            case 1:  /* DOWN：当前位 -1 */
-                nd = (cur + 9) % 10;
-                break;
-            case 2:  /* OK：下一位；已在最低位则提交 */
-                if (s_digit < 4) {
-                    s_digit++;
-                    s_need_redraw = true;
-                } else {
-                    dev_commit_write(gi, addr);
-                }
-                return;
-            case 4:  /* 长按 OK：不管在第几位，直接提交 */
-                dev_commit_write(gi, addr);
-                return;
-            case 3:  /* BACK：取消 */
+        uint16_t committed = 0;
+        bool done = ui_edit_key(&s_editor, key, &committed);
+        if (done) {
+            if (key == 3) {              /* BACK：取消，不写 */
                 s_edit = false;
                 s_batch = false;
                 s_msg[0] = '\0';
-                s_need_redraw = true;
-                return;
+            } else {                     /* OK / 长按 OK：提交 */
+                s_edit_val = committed;
+                dev_commit_write(gi, addr);
+            }
         }
-
-        int nv = (int)s_edit_val - cur * k_pow10[s_digit] + nd * k_pow10[s_digit];
-        if (nv < 0) nv = 0;
-        if (nv > 65535) nv = 65535;      /* 5 位框能打出 99999，按 uint16 上限截断 */
-        s_edit_val = (uint16_t)nv;
         s_need_redraw = true;
         return;
     }
@@ -352,13 +333,12 @@ static void dev_key(uint8_t key)
                 s_batch = true;
                 s_edit_val = 0;
                 s_msg[0] = '\0';
-                s_digit = 0;
+                ui_edit_begin(&s_editor, s_edit_val);
                 s_edit = true;
                 s_need_redraw = true;
             } else if (gi >= 0) {
                 /* 进编辑前先把现值读出来，别让人从 0 开始瞎猜 */
                 s_batch = false;
-                s_edit_val = 0;
                 uint16_t cnt = 0;
                 int type = s_dev.reg_groups[gi].reg_type;
                 if (type == REG_TYPE_HOLDING) {
@@ -370,7 +350,7 @@ static void dev_key(uint8_t key)
                     }
                 }
                 s_msg[0] = '\0';
-                s_digit = 0;
+                ui_edit_begin(&s_editor, 0);
                 s_edit = true;
                 s_need_redraw = true;
             }

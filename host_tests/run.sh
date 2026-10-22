@@ -22,6 +22,10 @@ echo "=== 协议层（RTU 建帧/解析 + 抓包帧解析） ==="
 "$OUT_DIR/test_protocol" || fail=1
 
 echo
+echo "=== UI 编辑状态机（逐位改数 / 光标 / 提交取消） ==="
+"$CC" $CFLAGS     -I components/display     host_tests/test_ui_edit.c     components/display/ui_edit.c     -o "$OUT_DIR/test_ui_edit"
+"$OUT_DIR/test_ui_edit" || fail=1
+
 echo "=== 波形信号处理（SMA / 幅值 / 触发） ==="
 "$CC" $CFLAGS \
     -I components/waveform \

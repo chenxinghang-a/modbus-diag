@@ -3,6 +3,7 @@ idf_component_register(
         "tft_driver.c"
         "gui_manager.c"
         "ui_widgets.c"
+        "ui_edit.c"
         "pages/page_home.c"
         "pages/page_rtu_scan.c"
         "pages/page_tcp.c"
