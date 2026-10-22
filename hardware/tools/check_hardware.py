@@ -213,6 +213,43 @@ def main():
         check(f"{name} 有确定启动电平（{net} 上有电阻）", has_r,
               net if has_r else f"{net} 只有 {[f'{a}.{b}' for a, b in members]}")
 
+    # ---------- 电源与 485 偏置 ----------
+    # LDO 的输入/输出都必须在**芯片引脚附近**有电容。10uF 在 PTC 之前不算数：
+    # 负载跳变时靠的是 VIN 脚旁边那颗，缺了会掉压甚至振荡。
+    def net_has_cap(net_name):
+        return any(r.startswith("C") for r, _ in nets.get(net_name, []))
+
+    vin_net = next((n for n, m in nets.items() if ["U4", "VI"] in m), None)
+    vout_net = next((n for n, m in nets.items() if ["U4", "VO"] in m), None)
+    check("LDO 输入端有电容", bool(vin_net) and net_has_cap(vin_net),
+          vin_net or "VI 未接")
+    check("LDO 输出端有电容", bool(vout_net) and net_has_cap(vout_net),
+          vout_net or "VO 未接")
+
+    # RS-485 空闲时若 A/B 无偏置，差分电压不定，接收器会输出随机跳变 ——
+    # 抓包页表现为「总线上没设备却一直有 0x00/0xFF」。
+    def pin_net(ref, pin):
+        return next((n for n, m in nets.items() if [ref, pin] in m), None)
+
+    def res_to(net_name, target):
+        """该网络上是否有电阻，其**另一端**接在 target 上（不是随便一个电阻就算）。"""
+        for ref, pin in nets.get(net_name, []):
+            if not ref.startswith("R"):
+                continue
+            other = "2" if pin == "1" else "1"
+            if pin_net(ref, other) == target:
+                return ref
+        return None
+
+    a_net = pin_net("U2", "A")
+    b_net = pin_net("U2", "B")
+    ra = res_to(a_net, "3V3") if a_net else None
+    rb = res_to(b_net, "GND") if b_net else None
+    check("485_A 有偏置电阻到 3V3", ra is not None,
+          f"{ra} 从 {a_net} 到 3V3" if ra else f"{a_net} 上没有到 3V3 的电阻")
+    check("485_B 有偏置电阻到 GND", rb is not None,
+          f"{rb} 从 {b_net} 到 GND" if rb else f"{b_net} 上没有到 GND 的电阻")
+
     print("=== BOM 与网表同步 ===")
     if os.path.exists(BOM):
         import csv
