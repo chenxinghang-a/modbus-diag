@@ -36,6 +36,9 @@ jobs:
           python3 -m pip install --quiet -r sim/requirements.txt
           PY=python3 bash host_tests/run_e2e.sh
 
+      - name: 文档与实测同步（断言数对不上就红）
+        run: python3 host_tests/check_docs_sync.py
+
       - name: 静态一致性（页面注册 / 事件收发 / 行索引，21 项）
         run: python3 host_tests/check_static.py
 
