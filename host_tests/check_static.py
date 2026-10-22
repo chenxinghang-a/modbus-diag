@@ -58,6 +58,20 @@ def main():
         check(f"{p} 同时实现 on_update 与 on_key", has_update and has_key,
               "" if has_update and has_key else f"update={has_update} key={has_key}")
 
+    # ---------- 列表行索引：禁止写死偏移 ----------
+    # 设备页的附加行（Fill / Set coils / Diag）是条件出现的，写死 +1/+2/+3
+    # 会在「只有线圈没有保持寄存器」时让某一行永远选不中 —— 编译器和普通测试都发现不了。
+    # 规则：这些偏移必须通过 row_offsets() 动态获得，不允许出现 writable_count() + 数字。
+    print("-- 列表行索引 --")
+    dev_page = os.path.join(PAGES, "page_device_info.c")
+    src = open(dev_page, encoding="utf-8").read()
+    literal_offsets = re.findall(r"writable_count\(\)\s*\+\s*\d+", src)
+    check("附加行偏移全部动态计算（无 writable_count() + 数字）",
+          not literal_offsets,
+          ", ".join(sorted(set(literal_offsets))) if literal_offsets else "")
+    check("绘制与按键都用同一份 row_offsets()", src.count("row_offsets(&") >= 2,
+          f"调用 {src.count('row_offsets(&')} 次")
+
     # ---------- 事件 ----------
     ev_src = open(EVENT_H, encoding="utf-8").read()
     ev_body = re.search(r"typedef enum \{(.*?)\} app_event_id_t", ev_src, re.S).group(1)

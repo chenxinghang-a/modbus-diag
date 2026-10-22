@@ -36,7 +36,7 @@ jobs:
           python3 -m pip install --quiet -r sim/requirements.txt
           PY=python3 bash host_tests/run_e2e.sh
 
-      - name: 静态一致性（页面注册 / 事件收发，19 项）
+      - name: 静态一致性（页面注册 / 事件收发 / 行索引，21 项）
         run: python3 host_tests/check_static.py
 
       - name: 硬件网表自检（固件引脚 ↔ 网表 51 项，含 GPIO 冲突）
