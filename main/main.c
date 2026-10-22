@@ -219,16 +219,30 @@ void app_main(void)
     app_event_register(APP_EVT_PAGE_ENTER, app_event_logger);
     app_event_register(APP_EVT_PAGE_EXIT, app_event_logger);
 
-    /* Init TFT */
-    ESP_ERROR_CHECK(tft_driver_init());
+    /* Init TFT —— **失败不致命**。
+     * 原型阶段最常见的情况就是屏没接好（少接一根线、排线反了）。
+     * 原来用 ESP_ERROR_CHECK：屏一坏整机 abort 重启，485/WiFi/协议栈全都测不了，
+     * 排查方向会被完全带偏（看起来像电源问题）。
+     * 现在降级为「无界面模式」：串口日志照常，Web 与协议功能继续可用。 */
+    bool display_ok = (tft_driver_init() == ESP_OK);
+    if (!display_ok) {
+        ESP_LOGE(TAG, "TFT init FAILED -> headless mode");
+        ESP_LOGE(TAG, "  still available: RS-485 / TCP / capture / report / Web");
+        ESP_LOGE(TAG, "  check: SCK12 MOSI11 CS10 DC9 RST8 BL7 + VCC/GND");
+    }
+    gui_manager_set_display_available(display_ok);
 
-    /* Init key scan */
-    ESP_ERROR_CHECK(key_scan_init());
+    /* Init key scan（按键坏也不该拖垮整机） */
+    if (key_scan_init() != ESP_OK) {
+        ESP_LOGW(TAG, "key scan init failed, keys disabled");
+    }
 
-    /* Show splash screen */
-    tft_fill_screen(TFT_COLOR_BLACK);
-    tft_draw_string(60, 100, "Modbus Diag", TFT_COLOR_WHITE, TFT_COLOR_BLACK, 2);
-    tft_draw_string(80, 130, "v1.0.0", TFT_COLOR_CYAN, TFT_COLOR_BLACK, 1);
+    /* Show splash screen（仅在屏可用时） */
+    if (display_ok) {
+        tft_fill_screen(TFT_COLOR_BLACK);
+        tft_draw_string(60, 100, "Modbus Diag", TFT_COLOR_WHITE, TFT_COLOR_BLACK, 2);
+        tft_draw_string(80, 130, "v1.0.0", TFT_COLOR_CYAN, TFT_COLOR_BLACK, 1);
+    }
 
     /* Start tasks */
     xTaskCreatePinnedToCore(ui_task, "ui_task", TASK_STACK_UI, NULL,

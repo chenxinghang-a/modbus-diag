@@ -7,6 +7,9 @@
 
 static const char *TAG = "gui";
 
+/* 显示是否可用：TFT 初始化失败时置 false，GUI 全部空转（见 set_display_available） */
+static bool s_display_available = true;
+
 static const page_t *s_pages[PAGE_MAX] = {0};
 static page_id_t s_page_stack[8] = {0};
 static int s_stack_top = 0;
@@ -33,8 +36,18 @@ static void key_event_handler(const app_event_t *evt)
         case APP_EVT_KEY_OK_LONG: key = 4; break;   /* 长按 OK：页面自行决定用不用 */
         default: return;
     }
+    /* 没有界面时按键无意义，且部分页面的 on_key 会直接调 tft 绘制 */
+    if (!s_display_available) return;
     if (s_current < PAGE_MAX && s_pages[s_current] && s_pages[s_current]->on_key) {
         s_pages[s_current]->on_key(key);
+    }
+}
+
+void gui_manager_set_display_available(bool available)
+{
+    s_display_available = available;
+    if (!available) {
+        ESP_LOGW(TAG, "display unavailable: GUI drawing disabled");
     }
 }
 
@@ -139,6 +152,7 @@ void gui_manager_back(void)
 
 void gui_manager_update(void)
 {
+    if (!s_display_available) return;      /* 屏没初始化成功：不画，也不进页面逻辑 */
     if (s_current < PAGE_MAX && s_pages[s_current] && s_pages[s_current]->on_update) {
         s_pages[s_current]->on_update();
     }

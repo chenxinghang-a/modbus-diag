@@ -28,6 +28,10 @@ typedef struct {
 
 esp_err_t gui_manager_init(void);
 
+/* 显示不可用时调用（TFT 初始化失败）。之后 update/key 全部空转，
+ * 上层（Web / 协议 / 报告）继续工作，不再往没初始化的屏上写。 */
+void gui_manager_set_display_available(bool available);
+
 void gui_manager_goto(page_id_t page);
 void gui_manager_back(void);
 void gui_manager_update(void);
