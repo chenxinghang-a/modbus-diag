@@ -351,6 +351,32 @@ modbus_err_t modbus_write_single_coil(uint8_t slave, uint16_t addr, bool value)
     return modbus_master_send_recv(&req, &resp);
 }
 
+/* FC08 诊断（Remote Diagnostic）。
+ * 帧构造在 modbus_rtu.c 里一直有，但**没有高层封装也没有界面入口** ——
+ * 论文 5.2.4 写着"支持 FC08"，用户却没有任何办法触发它（和当初 FC16 的情况一样）。
+ * 最常用的是子功能 0x0000（Return Query Data）：从站原样回显数据，
+ * 用来验证从站协议栈是否正常，且不动任何寄存器，现场很安全。 */
+modbus_err_t modbus_diagnostics(uint8_t slave, uint16_t sub_func, uint16_t data,
+                                uint16_t *out_data)
+{
+    modbus_request_t req = {
+        .slave_addr = slave,
+        .function_code = MODBUS_FC_DIAGNOSTICS,
+        .start_addr = sub_func,     /* FC08 用「地址」字段传子功能号 */
+        .write_value = data,
+    };
+    modbus_response_t resp = {0};
+    modbus_err_t err = modbus_master_send_recv(&req, &resp);
+    if (err != MODBUS_OK) return err;
+
+    /* 响应：FC + 子功能(2) + 数据(2)，解析器把它们整体放进 resp.data */
+    if (resp.data_len < 4) return MODBUS_ERR_INVALID_RESPONSE;
+    if (out_data) {
+        *out_data = (uint16_t)((resp.data[2] << 8) | resp.data[3]);
+    }
+    return MODBUS_OK;
+}
+
 modbus_err_t modbus_write_single_reg(uint8_t slave, uint16_t addr, uint16_t value)
 {
     modbus_request_t req = {
@@ -445,25 +471,6 @@ modbus_err_t modbus_write_multi_coils(uint8_t slave, uint16_t addr, uint16_t cou
     };
     modbus_response_t resp = {0};
     return modbus_master_send_recv(&req, &resp);
-}
-
-modbus_err_t modbus_diagnostics(uint8_t slave, uint16_t sub_func, uint16_t data,
-                                uint16_t *response)
-{
-    modbus_request_t req = {
-        .slave_addr = slave,
-        .function_code = MODBUS_FC_DIAGNOSTICS,
-        .start_addr = sub_func,
-        .write_value = data,
-    };
-    modbus_response_t resp = {0};
-    modbus_err_t err = modbus_master_send_recv(&req, &resp);
-    if (err != MODBUS_OK) return err;
-
-    if (response && resp.data_len >= 2) {
-        *response = (resp.data[0] << 8) | resp.data[1];
-    }
-    return MODBUS_OK;
 }
 
 int32_t modbus_master_last_response_time(void)

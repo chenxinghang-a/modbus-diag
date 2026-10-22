@@ -56,9 +56,10 @@ modbus_err_t modbus_write_multi_regs(uint8_t slave, uint16_t addr, uint16_t coun
 modbus_err_t modbus_write_multi_coils(uint8_t slave, uint16_t addr, uint16_t count,
                                       const uint8_t *coil_data);
 
-/* Diagnostics */
+/* Diagnostics：FC08。out_data 收到从站**回显的数据**（Return Query Data 的意义所在），
+ * 不是子功能号 —— 子功能号本来就是调用方传进去的，回显它没有信息量。 */
 modbus_err_t modbus_diagnostics(uint8_t slave, uint16_t sub_func, uint16_t data,
-                                uint16_t *response);
+                                uint16_t *out_data);
 
 /* Get last response time in microseconds */
 int32_t modbus_master_last_response_time(void);

@@ -114,12 +114,6 @@ static void write_data(const uint8_t *data, int len)
     spi_write(data, len);
 }
 
-static void write_data8(uint8_t val)
-{
-    dc_data();
-    spi_write(&val, 1);
-}
-
 static void write_data16(uint16_t val)
 {
     uint8_t buf[2] = { val >> 8, val & 0xFF };

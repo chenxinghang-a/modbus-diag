@@ -265,6 +265,37 @@ int main(void)
               frame_parser_to_hex(f, 3, okbuf, sizeof(okbuf), 0) > 0, okbuf);
     }
 
+    /* ---------- FC08 诊断帧（论文 5.2.4 声称支持，必须有入口与覆盖） ---------- */
+    printf("-- FC08 诊断帧 --\n");
+    {
+        modbus_request_t req = {
+            .slave_addr = 1,
+            .function_code = MODBUS_FC_DIAGNOSTICS,
+            .start_addr = 0x0000,      /* 子功能 0 = Return Query Data */
+            .write_value = 0xA55A,
+        };
+        uint8_t buf[32];
+        int n = modbus_rtu_build_request(&req, buf, sizeof(buf));
+        check("FC08 帧长 = 1+1+2+2+2 = 8", n == 8, NULL);
+        check("功能码为 0x08", buf[1] == 0x08, NULL);
+        check("子功能号占地址字段", buf[2] == 0x00 && buf[3] == 0x00, NULL);
+        check("数据跟在后面", buf[4] == 0xA5 && buf[5] == 0x5A, NULL);
+        check("FC08 帧 CRC 正确", modbus_rtu_check_crc(buf, (uint16_t)n), NULL);
+
+        /* 解析从站的环回复原帧：01 08 00 00 A5 5A + CRC */
+        uint8_t echo[8] = {0x01, 0x08, 0x00, 0x00, 0xA5, 0x5A, 0, 0};
+        uint16_t c = modbus_crc16(echo, 6);
+        echo[6] = (uint8_t)(c & 0xFF);
+        echo[7] = (uint8_t)(c >> 8);
+        modbus_response_t r;
+        memset(&r, 0, sizeof(r));
+        check("环回复原可解析",
+              modbus_rtu_parse_response(echo, sizeof(echo), &r) == MODBUS_OK, NULL);
+        check("data_len 为 4（子功能 + 数据）", r.data_len == 4, NULL);
+        uint16_t echoed = (uint16_t)((r.data[2] << 8) | r.data[3]);
+        check("取到回显数据 0xA55A（不是子功能号）", echoed == 0xA55A, NULL);
+    }
+
     /* ---------- 错误码名称完整性（枚举加了新值却忘加名字，这里会红） ---------- */
     printf("-- 错误码名称 --\n");
     {

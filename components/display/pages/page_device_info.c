@@ -158,6 +158,15 @@ static void dev_update(void)
                      sel ? ">" : " ", (unsigned)s_dev.reg_groups[hi].start_addr);
             tft_draw_string(10, y, buf,
                             sel ? THEME_HIGHLIGHT : THEME_ACCENT, THEME_BG, FONT_SMALL);
+            y += 12;
+        }
+
+        /* 诊断环回行（FC08 子功能 0）：验证从站协议栈，不动任何寄存器 */
+        if (y < 150) {
+            bool sel = (s_cursor == writable_count() + 1);
+            snprintf(buf, sizeof(buf), "%s[Diag: loopback]", sel ? ">" : " ");
+            tft_draw_string(10, y, buf,
+                            sel ? THEME_HIGHLIGHT : THEME_ACCENT, THEME_BG, FONT_SMALL);
         }
     }
 
@@ -309,7 +318,7 @@ static void dev_key(uint8_t key)
 
     /* ---------- 浏览态 ---------- */
     /* 可选行数 = 可写寄存器组 + 「批量填充」行（仅当存在保持寄存器组时） */
-    int rows = writable_count() + (first_holding_idx() >= 0 ? 1 : 0);
+    int rows = writable_count() + 1 /* Diag */ + (first_holding_idx() >= 0 ? 1 : 0);
 
     switch (key) {
         case 0: /* UP */
@@ -328,6 +337,25 @@ static void dev_key(uint8_t key)
             if (s_dev.reg_group_count == 0) {
                 /* 还没分类：先扫寄存器 */
                 dev_classify();
+            } else if (s_cursor == writable_count() + 1) {
+                /* FC08 子功能 0x0000（Return Query Data）：从站原样回显数据。
+                 * 用来验证从站协议栈是否正常，且不写任何寄存器 —— 现场很安全。 */
+                uint16_t echoed = 0;
+                modbus_err_t derr = modbus_diagnostics(s_dev.slave_addr, 0x0000,
+                                                       0xA55A, &echoed);
+                if (derr == MODBUS_OK && echoed == 0xA55A) {
+                    snprintf(s_msg, sizeof(s_msg), "Diag OK, echo=0x%04X", echoed);
+                    s_msg_err = false;
+                } else if (derr == MODBUS_OK) {
+                    snprintf(s_msg, sizeof(s_msg), "Diag reply bad: 0x%04X", echoed);
+                    s_msg_err = true;
+                } else {
+                    snprintf(s_msg, sizeof(s_msg), "Diag failed: %s", modbus_err_name(derr));
+                    s_msg_err = true;
+                }
+                log_storage_logf("FC08 loopback @%d -> %s",
+                                 s_dev.slave_addr, s_msg);
+                s_need_redraw = true;
             } else if (s_cursor == writable_count() && first_holding_idx() >= 0) {
                 /* 落在「批量填充」行：FC16 一次写 4 个连续寄存器 */
                 s_batch = true;
