@@ -91,6 +91,11 @@ R7 = 10k 下拉，保证默认接收。这条也是现场"上电后整条总线�
 已做过变异验证：把 MOSI 从 GPIO11 改到 GPIO13，自检立刻报
 `TFT_PIN_MOSI=GPIO11 → SPI_MOSI 网表中该脚在 <未连接>`。
 
+## 原型机搭建（不用等 PCB）
+
+`PROTOTYPE.md`：用开发板 + 外购模块一天内搭出可用样机的接线表、
+不要占用的脚（USB/Flash/PSRAM/JTAG）、烧录步骤与常见现象排查。
+
 ## 布局方案
 
 `placement.csv` / `placement.svg` 给出 43 个元件在 100×70mm 板框内的坐标，按功能分块：

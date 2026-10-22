@@ -143,6 +143,35 @@ def main():
             continue
         check(f"{ref}.{pin} 在 {net}", [ref, pin] in nets.get(net, []))
 
+    # ---------- GPIO 冲突检测（开发板接线时最容易踩的坑） ----------
+    # 两个功能抢同一个 GPIO：编译不报错、上板后两个功能一起抽。
+    # 典型场景：照抄设计文件的引脚到开发板，发现 TFT 的 CS 和 485 的 DE 是同一个脚。
+    seen_gpio = {}
+    for macro, _ in FIRMWARE_MAP:
+        if macro not in d:
+            continue
+        try:
+            g = int(d[macro], 0)
+        except ValueError:
+            continue
+        if g in seen_gpio:
+            check(f"GPIO{g} 只被一个功能占用", False,
+                  f"{seen_gpio[g]} 与 {macro} 冲突")
+        else:
+            seen_gpio[g] = macro
+            check(f"GPIO{g} → {macro} 无冲突", True)
+
+    # ESP32-S3 的 GPIO19/20 是 USB D-/D+，接了 USB 或 JTAG 就不能挪作他用
+    for macro, _ in FIRMWARE_MAP:
+        if macro in d:
+            try:
+                g = int(d[macro], 0)
+            except ValueError:
+                continue
+            if g in (19, 20):
+                check(f"{macro} 未占用 USB D-/D+ (GPIO{g})", False,
+                      "GPIO19/20 是 USB 与 JTAG 专用")
+
     print("=== BOM 与网表同步 ===")
     if os.path.exists(BOM):
         import csv
