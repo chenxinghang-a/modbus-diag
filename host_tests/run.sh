@@ -39,7 +39,7 @@ echo "=== 诊断报告生成（JSON / HTML / 诊断建议） ==="
     host_tests/test_report.c \
     components/diag_report/report_generator.c \
     components/diag_report/health_metrics.c \
-    -o "$OUT_DIR/test_report"
+    -lm -o "$OUT_DIR/test_report"
 "$OUT_DIR/test_report" || fail=1
 
 echo
