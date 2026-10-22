@@ -24,6 +24,9 @@ static modbus_config_t s_cfg = {
 
 static int32_t s_last_response_time_us = 0;
 static volatile app_uart_mode_t s_uart_mode = APP_UART_MODE_IDLE;
+/* 跨核自旋锁：s_uart_mode 会被 Core0 的扫描/抓包任务与 Core1 的 UI 任务同时读写，
+ * 普通 volatile 只保证单次读写原子，「读-判-写」组合必须加锁。 */
+static portMUX_TYPE s_uart_mux = portMUX_INITIALIZER_UNLOCKED;
 
 /* RS-485 direction control */
 static void rs485_tx_enable(void)
@@ -120,7 +123,27 @@ app_uart_mode_t modbus_master_get_uart_mode(void)
 
 void modbus_master_set_uart_mode(app_uart_mode_t mode)
 {
+    taskENTER_CRITICAL(&s_uart_mux);
     s_uart_mode = mode;
+    taskEXIT_CRITICAL(&s_uart_mux);
+}
+
+bool modbus_master_acquire_uart(app_uart_mode_t mode)
+{
+    if (mode != APP_UART_MODE_MODBUS && mode != APP_UART_MODE_CAPTURE) return false;
+
+    taskENTER_CRITICAL(&s_uart_mux);
+    bool ok = (s_uart_mode == APP_UART_MODE_IDLE);
+    if (ok) s_uart_mode = mode;
+    taskEXIT_CRITICAL(&s_uart_mux);
+    return ok;
+}
+
+void modbus_master_release_uart(void)
+{
+    taskENTER_CRITICAL(&s_uart_mux);
+    if (s_uart_mode != APP_UART_MODE_IDLE) s_uart_mode = APP_UART_MODE_IDLE;
+    taskEXIT_CRITICAL(&s_uart_mux);
 }
 
 /* 一次 UART 事务（建帧→发送→等响应→解析）。不含重试与 UART 模式管理，
@@ -191,12 +214,11 @@ modbus_err_t modbus_master_send_recv(const modbus_request_t *req, modbus_respons
         return err;
     }
 
-    /* Check if UART is available */
-    if (s_uart_mode == APP_UART_MODE_CAPTURE) {
+    /* 占用 UART：失败说明抓包任务正在用（或上一次没释放干净） */
+    if (!modbus_master_acquire_uart(APP_UART_MODE_MODBUS)) {
         ESP_LOGW(TAG, "UART busy (capture mode)");
         return MODBUS_ERR_IO;
     }
-    s_uart_mode = APP_UART_MODE_MODBUS;
 
     /* 重试：配置里的 retry_count 以前是个死字段（只在默认值里出现，没人读），
      * RS-485 现场干扰大，超时/CRC 错必须能重试。只重试这两类 ——
@@ -215,7 +237,7 @@ modbus_err_t modbus_master_send_recv(const modbus_request_t *req, modbus_respons
         }
     }
 
-    s_uart_mode = APP_UART_MODE_IDLE;
+    modbus_master_release_uart();
     return err;
 }
 

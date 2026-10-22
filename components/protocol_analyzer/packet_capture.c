@@ -66,14 +66,13 @@ esp_err_t packet_capture_start(void)
 {
     if (s_running) return ESP_OK;
 
-    /* Check if Modbus master is currently using the UART */
-    if (modbus_master_get_uart_mode() == APP_UART_MODE_MODBUS) {
+    /* 原子占用：原来是「先查再设」两步，扫描任务跑在另一个核上，完全可能在这两步
+     * 之间把 UART 抢走 —— 结果是抓包和扫描同时操作同一路串口，帧互相踩、数据全乱。
+     * 现在 acquire 内部用自旋锁把读-判-写合成一步。 */
+    if (!modbus_master_acquire_uart(APP_UART_MODE_CAPTURE)) {
         ESP_LOGW(TAG, "UART busy with Modbus, cannot start capture");
         return ESP_ERR_INVALID_STATE;
     }
-
-    /* Mark UART as capture mode */
-    modbus_master_set_uart_mode(APP_UART_MODE_CAPTURE);
 
     packet_capture_clear();
     s_running = true;
@@ -83,7 +82,7 @@ esp_err_t packet_capture_start(void)
     if (ret != pdPASS) {
         s_running = false;
         /* Hand the UART back, otherwise Modbus stays refused for good */
-        modbus_master_set_uart_mode(APP_UART_MODE_IDLE);
+        modbus_master_release_uart();
         return ESP_FAIL;
     }
 
@@ -97,7 +96,7 @@ void packet_capture_stop(void)
     /* Task will clean itself up */
     vTaskDelay(pdMS_TO_TICKS(50));
     /* Release UART back to idle */
-    modbus_master_set_uart_mode(APP_UART_MODE_IDLE);
+    modbus_master_release_uart();
 }
 
 bool packet_capture_is_running(void)

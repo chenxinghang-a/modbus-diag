@@ -65,8 +65,12 @@ esp_err_t log_storage_append(const char *entry)
                 if (w) {
                     fprintf(w, "[log rotated at %d bytes, older entries dropped]\n",
                             LOG_MAX_BYTES);
-                    fwrite(keep, 1, strlen(keep), w);
-                    fclose(w);
+                    size_t wn = fwrite(keep, 1, strlen(keep), w);
+                    int cerr = fclose(w);
+                    if (wn != strlen(keep) || cerr != 0) {
+                        ESP_LOGE(TAG, "log rotation write failed (%u/%u, %d)",
+                                 (unsigned)wn, (unsigned)strlen(keep), cerr);
+                    }
                 }
             }
         }
@@ -74,8 +78,14 @@ esp_err_t log_storage_append(const char *entry)
 
     FILE *f = fopen(LOG_PATH, "a");
     if (!f) return ESP_FAIL;
-    fprintf(f, "%s\n", entry);
-    fclose(f);
+    /* 返回值必须查：SPIFFS 写满时 fprintf 会失败，原来直接返回 ESP_OK，
+     * 现场表现是「日志一直在写、文件却不动」，且没有任何线索。 */
+    int wn = fprintf(f, "%s\n", entry);
+    int cerr = fclose(f);
+    if (wn < 0 || cerr != 0) {
+        ESP_LOGE(TAG, "log write failed (printf=%d, fclose=%d)", wn, cerr);
+        return ESP_FAIL;
+    }
     return ESP_OK;
 }
 

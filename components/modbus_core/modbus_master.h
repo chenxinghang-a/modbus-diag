@@ -11,6 +11,15 @@ void modbus_master_process(void);
 app_uart_mode_t modbus_master_get_uart_mode(void);
 void modbus_master_set_uart_mode(app_uart_mode_t mode);
 
+/* 原子地「检查并占用」UART：仅当当前为 IDLE 时置为指定模式并返回 true。
+ *
+ * 抓包启动原来是 `if (get() == MODBUS) return; set(CAPTURE);` 两步走 ——
+ * 扫描任务跑在另一个核上，完全可能在这两步之间把模式改成 MODBUS，
+ * 结果是抓包和扫描同时操作同一路 UART（帧互相踩、数据全乱）。
+ * 用 portMUX 自旋锁把读-判-写变成一步，跨核安全。 */
+bool modbus_master_acquire_uart(app_uart_mode_t mode);
+void modbus_master_release_uart(void);
+
 /* Configure RS-485 parameters */
 esp_err_t modbus_master_configure(const modbus_config_t *cfg);
 
