@@ -304,6 +304,22 @@ def main():
                   vdiff_mv >= 200,
                   f"{ra}={r1:.0f}Ω, {rb}={r2:.0f}Ω")
 
+    # ---------- 显示屏排针必须有电 ----------
+    # 真实踩过的坑：J3 是 14P 排针，我只接了 9 个信号脚，**漏了 VCC**，
+    # 模块根本不上电。这种错在网表里看不出来（每个网络都「有人」），
+    # 只有按「连接器应该有哪几类脚」去点，才会发现缺一整类。
+    # 按**网络成员**判断，不是按引脚名：J2 的引脚叫 1/2/3，名字里找不到 GND。
+    def pins_of(ref, netname):
+        return [p for r, p in nets.get(netname, []) if r == ref]
+
+    for ref, name, need_power in (("J3", "显示屏", True), ("J2", "RS-485 端子", False)):
+        all_pins = sorted({p for n, m in nets.items() for r, p in m if r == ref})
+        check(f"{name} 有 GND 连接", bool(pins_of(ref, "GND")),
+              f"{ref} 现有引脚 {all_pins}")
+        if need_power:
+            pwr = (pins_of(ref, "3V3") + pins_of(ref, "+5V") + pins_of(ref, "VBUS"))
+            check(f"{name} 有电源连接", bool(pwr), f"{ref} 现有引脚 {all_pins}")
+
     print("=== BOM 与网表同步 ===")
     if os.path.exists(BOM):
         import csv
