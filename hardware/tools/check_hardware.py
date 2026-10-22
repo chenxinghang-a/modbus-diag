@@ -268,6 +268,22 @@ def main():
     check(f"PTC 额定 ≥ 1.5× 峰值（{peak}mA → 需 {int(peak*1.5)}mA）",
           rating >= peak * 1.5, f"F1={f1}, 额定约 {int(rating)}mA")
 
+    # ---------- ADC 输入保护 ----------
+    # RS-485 标准允许 -7V 共模；经 1/4 分压后 ADC 会看到 -1.75V，
+    # 而 ESP32 的 ADC 绝对最小值是 -0.3V。没有钳位二极管就是在赌现场不出现负共模。
+    adc_net = next((n for n, m in nets.items() if ["U1", "IO5"] in m), None)
+    has_clamp = False
+    if adc_net:
+        for ref, pin in nets.get(adc_net, []):
+            if not ref.startswith("D"):
+                continue
+            other = "A" if pin == "K" else "K"
+            if next((n for n, m in nets.items() if [ref, other] in m), None) == "GND":
+                has_clamp = True
+                break
+    check("ADC 输入有对地钳位（防 RS-485 负共模）", has_clamp,
+          adc_net or "ADC 未接")
+
     print("=== BOM 与网表同步 ===")
     if os.path.exists(BOM):
         import csv

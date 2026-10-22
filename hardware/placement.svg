@@ -98,5 +98,7 @@
 <text x="515.1" y="200.0" font-size="5.0" text-anchor="middle" fill="#0f172a" font-family="sans-serif">R15</text>
 <rect x="523.6" y="194.8" width="10.4" height="5.2" fill="#fef9c3" stroke="#334155" stroke-width="0.9"/>
 <text x="528.8" y="199.1" font-size="5.0" text-anchor="middle" fill="#0f172a" font-family="sans-serif">C11</text>
+<rect x="539.2" y="191.6" width="11.0" height="8.5" fill="#dcfce7" stroke="#334155" stroke-width="0.9"/>
+<text x="544.7" y="197.4" font-size="5.0" text-anchor="middle" fill="#0f172a" font-family="sans-serif">D6</text>
 <text x="40" y="553" font-size="11" fill="#64748b" font-family="sans-serif">蓝=IC 红=接插件 灰=按键 绿=保护器件 黄=阻容</text>
 </svg>
