@@ -48,6 +48,11 @@ jobs:
       - name: 硬件网表自检（固件引脚 ↔ 网表 68 项，含 GPIO 冲突）
         run: python3 hardware/tools/check_hardware.py
 
+      - name: 原理图工作表与网表同步
+        run: |
+          python3 hardware/tools/gen_schedule.py
+          git diff --exit-code hardware/SCHEDULE.md
+
       - name: 布局方案自检（49 个元件不重叠 / 不越界 / 接插件靠边）
         run: python3 hardware/tools/gen_placement.py
 
