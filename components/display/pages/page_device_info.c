@@ -29,6 +29,18 @@ static bool s_batch = false;       /* 编辑态：true 表示「批量填充」�
 
 static const char *reg_type_str[] = {"Coil", "DiscInp", "Holding", "Input"};
 
+/* 第一个可写线圈组的下标（FC15 批量写线圈用），没有则 -1 */
+static int first_coil_idx(void)
+{
+    for (int i = 0; i < s_dev.reg_group_count; i++) {
+        if (s_dev.reg_groups[i].writable &&
+            s_dev.reg_groups[i].reg_type == REG_TYPE_COIL) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 /* 第一个可写保持寄存器组的下标（批量填充要用它的起始地址），没有则 -1 */
 static int first_holding_idx(void)
 {
@@ -39,6 +51,16 @@ static int first_holding_idx(void)
         }
     }
     return -1;
+}
+
+/* 列表尾部三个附加行的「相对 writable_count() 的偏移」。
+ * 必须动态算：只有线圈没有保持寄存器时，写死偏移会让 Diag 行排到游标到不了的位置。 */
+static void row_offsets(int *off_fill, int *off_coil, int *off_diag)
+{
+    int o = 1;
+    *off_fill = (first_holding_idx() >= 0) ? o++ : 0;
+    *off_coil = (first_coil_idx() >= 0) ? o++ : 0;
+    *off_diag = o;
 }
 
 static int writable_count(void){
@@ -122,6 +144,9 @@ static void dev_update(void)
         tft_draw_string(10, 52, buf, THEME_ACCENT, THEME_BG, FONT_SMALL);
     }
 
+    int off_fill, off_coil, off_diag;
+    row_offsets(&off_fill, &off_coil, &off_diag);
+
     int gi = group_at_cursor(s_cursor);
     uint16_t addr = (gi >= 0) ? s_dev.reg_groups[gi].start_addr : 0;
 
@@ -151,9 +176,12 @@ static void dev_update(void)
         }
 
         /* 批量填充行（FC16）：只有存在可写保持寄存器组时才出现 */
+        int off_fill, off_coil, off_diag;
+        row_offsets(&off_fill, &off_coil, &off_diag);
+
         int hi = first_holding_idx();
         if (hi >= 0 && y < 150) {
-            bool sel = (s_cursor == writable_count());
+            bool sel = off_fill && (s_cursor == writable_count() + off_fill);
             snprintf(buf, sizeof(buf), "%s[Fill 4 regs @%u]",
                      sel ? ">" : " ", (unsigned)s_dev.reg_groups[hi].start_addr);
             tft_draw_string(10, y, buf,
@@ -161,9 +189,20 @@ static void dev_update(void)
             y += 12;
         }
 
+        /* 批量写线圈行（FC15）：一次置 4 个连续线圈，用于成组复位/启动 */
+        int ci = first_coil_idx();
+        if (ci >= 0 && y < 150) {
+            bool sel = off_coil && (s_cursor == writable_count() + off_coil);
+            snprintf(buf, sizeof(buf), "%s[Set 4 coils @%u]",
+                     sel ? ">" : " ", (unsigned)s_dev.reg_groups[ci].start_addr);
+            tft_draw_string(10, y, buf,
+                            sel ? THEME_HIGHLIGHT : THEME_ACCENT, THEME_BG, FONT_SMALL);
+            y += 12;
+        }
+
         /* 诊断环回行（FC08 子功能 0）：验证从站协议栈，不动任何寄存器 */
         if (y < 150) {
-            bool sel = (s_cursor == writable_count() + 1);
+            bool sel = (s_cursor == writable_count() + off_diag);
             snprintf(buf, sizeof(buf), "%s[Diag: loopback]", sel ? ">" : " ");
             tft_draw_string(10, y, buf,
                             sel ? THEME_HIGHLIGHT : THEME_ACCENT, THEME_BG, FONT_SMALL);
@@ -318,7 +357,9 @@ static void dev_key(uint8_t key)
 
     /* ---------- 浏览态 ---------- */
     /* 可选行数 = 可写寄存器组 + 「批量填充」行（仅当存在保持寄存器组时） */
-    int rows = writable_count() + 1 /* Diag */ + (first_holding_idx() >= 0 ? 1 : 0);
+    int off_fill, off_coil, off_diag;
+    row_offsets(&off_fill, &off_coil, &off_diag);
+    int rows = writable_count() + off_diag + 1;   /* +1 = Diag 本身 */
 
     switch (key) {
         case 0: /* UP */
@@ -337,7 +378,40 @@ static void dev_key(uint8_t key)
             if (s_dev.reg_group_count == 0) {
                 /* 还没分类：先扫寄存器 */
                 dev_classify();
-            } else if (s_cursor == writable_count() + 1) {
+            } else if (off_coil && s_cursor == writable_count() + off_coil) {
+                /* FC15 批量写 4 个线圈：置成编辑值（0=全断，非0=全通）。
+                 * 和 FC16 的 Fill 4 regs 对应，覆盖论文里列的 0x0F。 */
+                int ci = first_coil_idx();
+                if (ci >= 0) {
+                    uint16_t base = s_dev.reg_groups[ci].start_addr;
+                    uint8_t bits[1] = { s_edit_val ? 0x0F : 0x00 };
+                    modbus_err_t cerr = modbus_write_multiple_coils(
+                        s_dev.slave_addr, base, bits, 4);
+                    if (cerr == MODBUS_OK) {
+                        uint8_t rb[1] = {0};
+                        uint16_t cnt = 0;
+                        if (modbus_read_coils(s_dev.slave_addr, base, 1, rb, &cnt) == MODBUS_OK) {
+                            snprintf(s_msg, sizeof(s_msg), "OK 4coils@%u = 0x%02X",
+                                     (unsigned)base, rb[0] & 0x0F);
+                        } else {
+                            snprintf(s_msg, sizeof(s_msg), "OK 4coils@%u (readback failed)",
+                                     (unsigned)base);
+                        }
+                        s_msg_err = false;
+                        log_storage_logf("FC15: addr=%d @%u x4 <- %s, readback=0x%02X",
+                                         s_dev.slave_addr, (unsigned)base,
+                                         s_edit_val ? "ON" : "OFF", rb[0] & 0x0F);
+                    } else {
+                        snprintf(s_msg, sizeof(s_msg), "FC15 failed: %s",
+                                 modbus_err_name(cerr));
+                        s_msg_err = true;
+                        log_storage_logf("FC15 FAILED: addr=%d @%u x4 err=%s",
+                                         s_dev.slave_addr, (unsigned)base,
+                                         modbus_err_name(cerr));
+                    }
+                    s_need_redraw = true;
+                }
+            } else if (s_cursor == writable_count() + off_diag) {
                 /* FC08 子功能 0x0000（Return Query Data）：从站原样回显数据。
                  * 用来验证从站协议栈是否正常，且不写任何寄存器 —— 现场很安全。 */
                 uint16_t echoed = 0;
@@ -356,7 +430,7 @@ static void dev_key(uint8_t key)
                 log_storage_logf("FC08 loopback @%d -> %s",
                                  s_dev.slave_addr, s_msg);
                 s_need_redraw = true;
-            } else if (s_cursor == writable_count() && first_holding_idx() >= 0) {
+            } else if (off_fill && s_cursor == writable_count() + off_fill) {
                 /* 落在「批量填充」行：FC16 一次写 4 个连续寄存器 */
                 s_batch = true;
                 s_edit_val = 0;
