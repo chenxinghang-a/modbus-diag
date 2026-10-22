@@ -170,10 +170,10 @@
       "note": "背光低边开关（论文 4.4.1）"
     },
     "F1": {
-      "value": "PTC 0.5A/6V",
-      "mpn": "MF-MSMF050",
+      "value": "PTC 1A/6V",
+      "mpn": "MF-MSMF110",
       "package": "0805",
-      "note": "5V 输入自恢复保险"
+      "note": "峰值约 435mA，原 0.5A 型号在高温降额后会跳闸"
     },
     "D1": {
       "value": "LED 绿",

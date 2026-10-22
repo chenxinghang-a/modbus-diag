@@ -250,6 +250,24 @@ def main():
     check("485_B 有偏置电阻到 GND", rb is not None,
           f"{rb} 从 {b_net} 到 GND" if rb else f"{b_net} 上没有到 GND 的电阻")
 
+    # ---------- 电源预算 ----------
+    # PTC 的 hold 电流随温度降额（50°C 时约打七折），所以额定值必须留足余量。
+    # 曾经的 0.5A 对 435mA 峰值：常温勉强、装机升温后 WiFi 一发射就跳闸，
+    # 现象是「连 WiFi 就重启」，很容易误判成固件问题。
+    budget_ma = {
+        "ESP32-S3 WiFi 发射峰值": 350,
+        "TFT 背光": 60,
+        "CH340": 15,
+        "RS-485": 10,
+    }
+    peak = sum(budget_ma.values())
+    f1 = comps.get("F1", {}).get("value", "")
+    import re as _re
+    m_amp = _re.search(r"([\d.]+)\s*A", f1)
+    rating = float(m_amp.group(1)) * 1000 if m_amp else 0
+    check(f"PTC 额定 ≥ 1.5× 峰值（{peak}mA → 需 {int(peak*1.5)}mA）",
+          rating >= peak * 1.5, f"F1={f1}, 额定约 {int(rating)}mA")
+
     print("=== BOM 与网表同步 ===")
     if os.path.exists(BOM):
         import csv
