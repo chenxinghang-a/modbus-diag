@@ -42,6 +42,9 @@ jobs:
       - name: 静态一致性（页面注册 / 事件收发 / 行索引，21 项）
         run: python3 host_tests/check_static.py
 
+      - name: 接线表与固件引脚一致（12 项）
+        run: python3 host_tests/check_pin_table.py
+
       - name: 硬件网表自检（固件引脚 ↔ 网表 68 项，含 GPIO 冲突）
         run: python3 hardware/tools/check_hardware.py
 

@@ -40,7 +40,7 @@ GPIO5 接 30k/10k 分压中点（分压比 1/4），测 A 线对地电压。
 | 波形采样 | 5 | ADC_IN | ADC1_CH4，30k/10k 分压 + 钳位 |
 | TFT SCK | 12 | SPI_SCK | SPI2 40MHz |
 | TFT MOSI | 11 | SPI_MOSI | 只写，MISO 不用 |
-| TFT CS / DC / RST | 10 / 9 / 8 | TFT_CS / DC / RST | |
+| TFT CS / DC / RST | 10 / 9 / 8 | TFT_CS / TFT_DC / TFT_RST | |
 | TFT 背光 | 7 | TFT_BL → 2N7002 栅极 | 高电平导通，低边开关驱动模组 BL；10k 下拉防误亮 |
 | 触摸 CS / IRQ | 46 / 3 | TOUCH_CS / TOUCH_IRQ | **模组自带的 XPT2046，固件未启用驱动，预留** |
 | 按键 UP/DOWN/OK/BACK | 1 / 2 / 42 / 41 | KEY_* | 内部上拉，按下接地 |
