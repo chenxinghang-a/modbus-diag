@@ -110,7 +110,7 @@ python -m venv .venv
 
 `hardware/` 提供可核对的设计数据（[详见 hardware/README.md](hardware/README.md)）：
 
-- `netlist.json` —— 单一数据源：43 个元件的网表
+- `netlist.json` —— 单一数据源：45 个元件的网表
 - `BOM.csv` —— 由网表生成，每个元件带 MPN 与封装
 - `tools/check_hardware.py` —— **固件引脚 ↔ 硬件网表**一致性自检（32 项，已接入 CI）
 

@@ -198,6 +198,21 @@ def main():
         check(f"J1.{cc} 经 {res} 下拉到 GND", cc_ok,
               f"{res}={comps.get(res, {}).get('value', '?')}")
 
+    # ---------- strapping 脚必须有确定的启动电平 ----------
+    # ESP32-S3 的 GPIO0/3/45/46 在复位瞬间被采样，电平决定启动模式。
+    # 悬空 = 电平不确定，可能出现「上电偶尔不启动」这种最难查的故障。
+    # 规则：用到 strapping 脚时，该网络上必须有一个电阻接到 3V3 或 GND。
+    STRAPPING = {"IO0": "GPIO0", "IO3": "GPIO3", "IO45": "GPIO45", "IO46": "GPIO46"}
+    for pin, name in STRAPPING.items():
+        net = io_net.get(int(pin[2:]))
+        if net is None:
+            check(f"{name} 未使用（无需固定电平）", True)
+            continue
+        members = nets.get(net, [])
+        has_r = any(r.startswith("R") for r, _ in members)
+        check(f"{name} 有确定启动电平（{net} 上有电阻）", has_r,
+              net if has_r else f"{net} 只有 {[f'{a}.{b}' for a, b in members]}")
+
     print("=== BOM 与网表同步 ===")
     if os.path.exists(BOM):
         import csv
