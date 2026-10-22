@@ -42,7 +42,7 @@ jobs:
       - name: 静态一致性（页面注册 / 事件收发 / 行索引，21 项）
         run: python3 host_tests/check_static.py
 
-      - name: 硬件网表自检（固件引脚 ↔ 网表 51 项，含 GPIO 冲突）
+      - name: 硬件网表自检（固件引脚 ↔ 网表 54 项，含 GPIO 冲突）
         run: python3 hardware/tools/check_hardware.py
 
       - name: 布局方案自检（43 个元件不重叠 / 不越界 / 接插件靠边）

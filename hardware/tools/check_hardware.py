@@ -172,6 +172,32 @@ def main():
                 check(f"{macro} 未占用 USB D-/D+ (GPIO{g})", False,
                       "GPIO19/20 是 USB 与 JTAG 专用")
 
+    # ---------- 悬空引脚与 USB-C 供电 ----------
+    # 两端器件只有一端进网络 = 另一端悬空，这是最典型的手误（漏画一根线）。
+    # 曾经的真实案例：R1/R2（5.1k CC 下拉）只接了 GND 一端，
+    # 结果 J1 的 CC1/CC2 根本没接 —— 标准 C-to-C 线插上去主机不给电。
+    import collections
+    used = collections.defaultdict(set)
+    for net, members in nets.items():
+        for ref, pin in members:
+            used[ref].add(pin)
+
+    dangling = []
+    for ref in comps:
+        pkg = comps[ref].get("package", "")
+        if ref.startswith(("R", "C", "D", "F")):
+            if len(used.get(ref, ())) < 2:
+                dangling.append(f"{ref}({sorted(used.get(ref, []))})")
+    check("两端器件没有悬空引脚", not dangling, ", ".join(dangling))
+
+    # J1 的 CC1/CC2 必须各经 5.1k 下拉到 GND（UFP 请求 5V 的必要条件）
+    for cc, res in (("CC1", "R1"), ("CC2", "R2")):
+        net = [n for n, m in nets.items() if ["J1", cc] in m]
+        # 注意别用 ok 当局部变量：它会覆盖模块级的计数器，导致汇总行变成 "OK True"
+        cc_ok = bool(net) and [res, "1"] in nets[net[0]]                 and [res, "2"] in nets.get("GND", [])
+        check(f"J1.{cc} 经 {res} 下拉到 GND", cc_ok,
+              f"{res}={comps.get(res, {}).get('value', '?')}")
+
     print("=== BOM 与网表同步 ===")
     if os.path.exists(BOM):
         import csv
