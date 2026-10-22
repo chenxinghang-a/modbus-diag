@@ -21,3 +21,9 @@ void traffic_stats_add_frame(bool crc_ok, bool is_exception, int32_t response_us
 void traffic_stats_get(traffic_stats_t *out);
 void traffic_stats_reset(void);
 void traffic_stats_tick(void);  /* call once per second to update rates */
+
+/* 是否具备有效计时样本（被动抓包没有请求/响应配对，min 会停在哨兵值） */
+static inline bool traffic_stats_has_timing(const traffic_stats_t *s)
+{
+    return s && s->total_frames > 0 && s->min_response_us != INT32_MAX;
+}

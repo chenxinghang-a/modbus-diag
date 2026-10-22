@@ -15,6 +15,12 @@
 static bool s_need_redraw = true;
 static bool s_scanning = false;
 static bool s_quick_scan = false;   /* true = 只扫当前波特率（现场已知波特率时用） */
+
+/* 扫描范围可选：现场多数情况只需要看前几十个地址，固定 1~247 意味着
+ * 明知设备在 1~30 也要等满全程（分钟级）。 */
+static const uint16_t s_ranges[] = {247, 50, 16, 8};
+static const int s_range_count = 4;
+static int s_range_idx = 0;
 static scan_result_t s_result;
 static int s_progress = 0;
 static int s_progress_total = 0;
@@ -59,7 +65,7 @@ static void scan_task(void *arg)
         .baud_rates = s_quick_scan ? &quick_baud : NULL,
         .baud_count = s_quick_scan ? 1 : 0,
         .addr_start = 1,
-        .addr_end = 247,
+        .addr_end = s_ranges[s_range_idx],
         .timeout_ms = scan_timeout,
         .retry_count = 0,   /* 扫描不重试：247 个地址各重试一次，耗时直接翻倍 */
         .on_progress = scan_progress_cb,
@@ -194,6 +200,8 @@ static void rtu_update(void)
         } else {
             tft_draw_string(20, 92, "Mode: ALL baud (5 steps)", THEME_FG, THEME_BG, FONT_SMALL);
         }
+        snprintf(buf, sizeof(buf), "Range: 1 ~ %u  [UP/DN] change", s_ranges[s_range_idx]);
+        tft_draw_string(20, 106, buf, THEME_ACCENT, THEME_BG, FONT_SMALL);
     }
 
     tft_draw_string(20, TFT_HEIGHT - 18,
@@ -209,6 +217,13 @@ static void rtu_key(uint8_t key)
             s_need_redraw = true;
         }
         return;                    /* 扫描中其它键忽略 */
+    }
+
+    /* 没有结果时 UP/DOWN 用来调范围（有结果时它们控制菜单游标） */
+    if (s_result.device_count == 0 && (key == 0 || key == 1)) {
+        s_range_idx = (s_range_idx + (key == 0 ? 1 : s_range_count - 1)) % s_range_count;
+        s_need_redraw = true;
+        return;
     }
 
     switch (key) {

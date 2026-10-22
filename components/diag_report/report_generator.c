@@ -10,8 +10,8 @@ int report_generate_json(char *buf, size_t buf_size, const health_report_t *heal
 
     /* min_response_us 初值是 INT32_MAX：没有计时样本时必须落成 -1，
      * 否则 JSON 里会出现 2147483647，下游画图会把坐标轴拉到天上。 */
-    bool has_timing = health_has_enough_samples(health) &&
-                      (health->min_response_us != INT32_MAX);
+    bool has_timing = health_report_has_timing(health) &&
+                      health_has_enough_samples(health);
 
     /* 链路参数：报告里必须能看出「这是哪台设备、用什么参数测的」，否则回溯不了 */
     char frame_s[8];
@@ -158,7 +158,7 @@ int report_generate_html(char *buf, size_t buf_size, const health_report_t *heal
 
     /* 响应时间四个值：有帧不代表有计时样本（被动抓包没有请求/响应配对），
      * 没样本时 min_response_us 会停在 INT32_MAX，直接打出来是天文数字。 */
-    bool has_timing = has_data && (health->min_response_us != INT32_MAX);
+    bool has_timing = health_report_has_timing(health);
     char min_s[24], max_s[24], avg_s[24], jit_s[24];
     if (has_timing) {
         snprintf(min_s, sizeof(min_s), "%ld us", (long)health->min_response_us);

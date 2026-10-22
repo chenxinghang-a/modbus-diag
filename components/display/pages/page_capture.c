@@ -119,7 +119,7 @@ static void capture_update(void)
     /* 抓包是被动的，没有「请求→响应」配对，量不出响应时间：
      * add_frame 一直传 response_us=0，min 就停在初值 INT32_MAX。
      * 老代码直接打印 avg/max，页面上永远是一对 0，看着像「测得很快」。 */
-    if (stats.min_response_us == INT32_MAX) {
+    if (!traffic_stats_has_timing(&stats)) {
         snprintf(buf, sizeof(buf), "Resp: -- (passive, no timing)");
     } else {
         snprintf(buf, sizeof(buf), "Resp: avg=%ld max=%ld us",

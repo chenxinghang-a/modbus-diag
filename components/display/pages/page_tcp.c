@@ -16,6 +16,12 @@ static char s_ip[32] = "192.168.1.100";
 static uint16_t s_port = 502;
 static int s_octet = 100;   /* IP 末段，UP/DN 调它（4 键机身上没法逐位编辑） */
 static char s_msg[48];      /* 最近一次操作结果 */
+
+/* 常用端口表：502 是标准，15020 是本项目的模拟器，其余为现场常见非标口。
+ * 四键机身没法逐位敲端口号，长按 OK 循环是代价最小的可用方案。 */
+static const uint16_t s_ports[] = {502, 15020, 503, 1024, 2404};
+static const int s_port_count = 5;
+static int s_port_idx = 0;
 static bool s_msg_err = false;
 
 /* 只改最后一段：现场多数情况是「同网段换一台设备」，
@@ -33,6 +39,9 @@ static void ip_load(void)
     uint32_t p = 502;
     nvs_config_get_u32("tcp_port", &p, 502);
     s_port = (uint16_t)p;
+    for (int i = 0; i < s_port_count; i++) {
+        if (s_ports[i] == s_port) { s_port_idx = i; break; }
+    }
 
     char *dot = strrchr(s_ip, '.');
     s_octet = dot ? atoi(dot + 1) : 100;
@@ -92,6 +101,8 @@ static void tcp_update(void)
         tft_draw_string(20, 80, "Status: DISCONNECTED", THEME_ERROR, THEME_BG, FONT_NORMAL);
         tft_draw_string(20, 110, "[OK] Connect", THEME_HIGHLIGHT, THEME_BG, FONT_NORMAL);
         tft_draw_string(20, 130, "[UP/DN] IP last octet", THEME_FG, THEME_BG, FONT_NORMAL);
+        snprintf(buf, sizeof(buf), "[OK hold] Port %u", (unsigned)s_port);
+        tft_draw_string(20, 150, buf, THEME_FG, THEME_BG, FONT_NORMAL);
     }
 }
 
@@ -149,6 +160,15 @@ static void tcp_key(uint8_t key)
             if (!s_connected) {
                 s_octet = (s_octet % 254) + 1;
                 ip_apply_octet();
+                s_need_redraw = true;
+            }
+            break;
+        case 4: /* 长按 OK：循环端口（502 / 15020 / 503 / 1024 / 2404） */
+            if (!s_connected) {
+                s_port_idx = (s_port_idx + 1) % s_port_count;
+                s_port = s_ports[s_port_idx];
+                snprintf(s_msg, sizeof(s_msg), "Port -> %u", (unsigned)s_port);
+                s_msg_err = false;
                 s_need_redraw = true;
             }
             break;

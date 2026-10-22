@@ -41,6 +41,14 @@ void health_metrics_get_report(health_report_t *out);
 int health_metrics_calculate_score(const health_report_t *report);
 const char *health_metrics_grade(int score);
 
+/* 是否具备有效的计时样本。
+ * min_response_us 初值是 INT32_MAX（没有样本时的哨兵），三处显示逻辑原来各自
+ * `!= INT32_MAX` 判断，漏一处就会把 2147483647 打给用户。统一收在这里。 */
+static inline bool health_report_has_timing(const health_report_t *r)
+{
+    return r && r->total_frames > 0 && r->min_response_us != INT32_MAX;
+}
+
 /* 样本是否足够评分（total_frames >= HEALTH_MIN_SAMPLES） */
 static inline bool health_has_enough_samples(const health_report_t *r)
 {
