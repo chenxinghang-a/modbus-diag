@@ -284,6 +284,26 @@ def main():
     check("ADC 输入有对地钳位（防 RS-485 负共模）", has_clamp,
           adc_net or "ADC 未接")
 
+    # ---------- 485 偏置的「有效性」而不只是「存在性」 ----------
+    # RS-485 接收器要 ≥200mV 差分才算确定电平。
+    # 偏置电流 I = 3.3 / (R上 + R终端 + R下)，差分 = I × 120Ω。
+    # 10k/10k 在 120Ω 上只有 20mV —— 装上去等于没装，这是我第一版的错误。
+    def res_value_ohm(ref):
+        v = comps.get(ref, {}).get("value", "")
+        m = _re.match(r"^([\d.]+)\s*([kKmM]?)", v)
+        if not m:
+            return None
+        mult = {"": 1, "k": 1e3, "K": 1e3, "m": 1e-3, "M": 1e6}[m.group(2)]
+        return float(m.group(1)) * mult
+
+    if ra and rb:
+        r1, r2 = res_value_ohm(ra), res_value_ohm(rb)
+        if r1 and r2:
+            vdiff_mv = 3.3 / (r1 + 120 + r2) * 120 * 1000
+            check(f"485 偏置能产生 ≥200mV 差分（实测 {vdiff_mv:.0f}mV）",
+                  vdiff_mv >= 200,
+                  f"{ra}={r1:.0f}Ω, {rb}={r2:.0f}Ω")
+
     print("=== BOM 与网表同步 ===")
     if os.path.exists(BOM):
         import csv
